@@ -226,6 +226,10 @@ export async function generateStockVideoComposition(
     });
 }
 
+/**
+ * FFmpeg blend mode mapping
+ * Maps CSS blend modes to FFmpeg blend filter modes
+ */
 const BLEND_MODE_MAP: Record<BlendMode, string> = {
     normal: 'normal',
     multiply: 'multiply',
@@ -241,11 +245,27 @@ function normalizeConcatPath(filePath: string) {
     return filePath.replace(/\\/g, '/');
 }
 
-function mapBlendMode(mode?: BlendMode) {
+function mapBlendMode(mode?: BlendMode): string {
     if (!mode) return 'normal';
     return BLEND_MODE_MAP[mode] || 'normal';
 }
 
+/**
+ * Apply video overlays to the base video using FFmpeg filter_complex
+ * 
+ * Strategy:
+ * 1. Use 'overlay' filter for proper video compositing (supports transparency)
+ * 2. Scale overlays to match base video dimensions
+ * 3. Loop overlays to match base video duration using -stream_loop
+ * 4. Apply blend modes via blend filter when mode !== 'normal'
+ * 5. Apply opacity via colorchannelmixer or format filter
+ * 6. Single-pass encoding for efficiency
+ * 
+ * @param inputVideoPath - Path to the base video
+ * @param overlays - Array of overlay configurations
+ * @param onProgress - Progress callback
+ * @returns Path to the output video with overlays applied
+ */
 async function applyVideoOverlays(
     inputVideoPath: string,
     overlays?: InternalOverlay[],
@@ -260,75 +280,166 @@ async function applyVideoOverlays(
     );
 
     if (videoOverlays.length === 0) {
+        console.log('[FFmpeg Overlay] No valid video overlays found, returning original video');
         return inputVideoPath;
     }
 
-    // Get base video duration for looping overlays
+    // Get base video duration and dimensions
     const baseDuration = await getVideoDuration(inputVideoPath);
-    console.log(`[FFmpeg Overlay] Base video duration: ${baseDuration}s, applying ${videoOverlays.length} overlay(s)`);
+    const baseInfo = await getVideoInfo(inputVideoPath);
+    
+    console.log(`[FFmpeg Overlay] Base video: ${baseInfo.width}x${baseInfo.height}, duration: ${baseDuration}s`);
+    console.log(`[FFmpeg Overlay] Applying ${videoOverlays.length} overlay(s)`);
 
     return new Promise((resolve, reject) => {
         const outputPath = getTempFilePath('mp4');
         let command = ffmpeg().input(inputVideoPath);
 
-        // Add overlay inputs with loop enabled (-stream_loop -1 loops infinitely)
+        // Add each overlay input with infinite loop
         videoOverlays.forEach((overlay) => {
             command = command
                 .input(overlay.filePath!)
-                .inputOptions(['-stream_loop', '-1']); // Loop the overlay infinitely
+                .inputOptions([
+                    '-stream_loop', '-1',  // Loop overlay infinitely
+                    '-t', String(baseDuration)  // But limit to base duration
+                ]);
         });
 
-        // Build filter complex
-        // Start with scaling base video to ensure even dimensions
-        const filterParts: string[] = ['[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2[base0]'];
-        let currentLabel = 'base0';
+        // Build filter_complex for proper video compositing
+        const filterParts: string[] = [];
+        
+        // Scale base video to ensure even dimensions (required for libx264)
+        filterParts.push(`[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[base]`);
+        
+        let currentBase = 'base';
 
         videoOverlays.forEach((overlay, index) => {
-            const overlayStream = `${index + 1}:v`;
-            const overlayLabel = `ov${index}`;
-            const scaledOverlay = `sov${index}`;
-            const refLabel = `ref${index}`;
-            const mode = mapBlendMode(overlay.blendMode);
+            const inputIdx = index + 1;
             const opacity = Math.max(0, Math.min(1, overlay.opacity ?? 1));
+            const blendMode = mapBlendMode(overlay.blendMode);
+            
+            const scaledLabel = `scaled${index}`;
+            const preparedLabel = `prepared${index}`;
+            const resultLabel = index === videoOverlays.length - 1 ? 'outv' : `result${index}`;
 
-            // Scale overlay to match base, then apply blend
-            // First scale overlay to same size as current base
-            filterParts.push(`[${overlayStream}]scale=trunc(iw/2)*2:trunc(ih/2)*2[${scaledOverlay}]`);
-            filterParts.push(`[${scaledOverlay}][${currentLabel}]scale2ref[${overlayLabel}][${refLabel}]`);
-            filterParts.push(`[${refLabel}][${overlayLabel}]blend=all_mode='${mode}':all_opacity=${opacity}[base${index + 1}]`);
-            currentLabel = `base${index + 1}`;
+            // Scale overlay to match base video dimensions
+            filterParts.push(
+                `[${inputIdx}:v]scale=${baseInfo.width}:${baseInfo.height}:force_original_aspect_ratio=decrease,` +
+                `pad=${baseInfo.width}:${baseInfo.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[${scaledLabel}]`
+            );
+
+            if (blendMode === 'normal') {
+                // For normal blend mode, use overlay filter with opacity
+                // Apply opacity using colorchannelmixer (efficient single filter)
+                if (opacity < 1) {
+                    filterParts.push(
+                        `[${scaledLabel}]colorchannelmixer=aa=${opacity}[${preparedLabel}]`
+                    );
+                    filterParts.push(
+                        `[${currentBase}][${preparedLabel}]overlay=0:0:format=auto[${resultLabel}]`
+                    );
+                } else {
+                    // Full opacity - direct overlay
+                    filterParts.push(
+                        `[${currentBase}][${scaledLabel}]overlay=0:0:format=auto[${resultLabel}]`
+                    );
+                }
+            } else {
+                // For special blend modes, use blend filter
+                // First apply opacity to overlay, then blend
+                if (opacity < 1) {
+                    filterParts.push(
+                        `[${scaledLabel}]colorchannelmixer=aa=${opacity}[${preparedLabel}]`
+                    );
+                    filterParts.push(
+                        `[${currentBase}][${preparedLabel}]blend=all_mode='${blendMode}'[${resultLabel}]`
+                    );
+                } else {
+                    filterParts.push(
+                        `[${currentBase}][${scaledLabel}]blend=all_mode='${blendMode}'[${resultLabel}]`
+                    );
+                }
+            }
+
+            currentBase = resultLabel;
         });
 
-        filterParts.push(`[${currentLabel}]format=yuv420p[outv]`);
+        // Ensure output format is compatible
+        filterParts.push(`[outv]format=yuv420p[final]`);
 
-        console.log(`[FFmpeg Overlay] Filter complex: ${filterParts.join(';').substring(0, 200)}...`);
+        const filterComplex = filterParts.join(';');
+        console.log(`[FFmpeg Overlay] Filter complex:\n${filterComplex}`);
 
         command
-            .complexFilter(filterParts.join(';'))
+            .complexFilter(filterComplex)
             .outputOptions([
-                '-map', '[outv]',
-                '-map', '0:a?',
+                '-map', '[final]',
+                '-map', '0:a?',           // Include audio from base if present
                 '-c:v', 'libx264',
-                '-preset', 'medium',
+                '-preset', 'fast',        // Fast preset for efficiency
+                '-crf', '23',             // Good quality/size balance
                 '-c:a', 'aac',
-                '-t', String(baseDuration), // Limit output to base video duration
-                '-shortest'
+                '-b:a', '192k',
+                '-movflags', '+faststart', // Web optimization
+                '-t', String(baseDuration)
             ])
             .output(outputPath)
+            .on('start', (cmdLine) => {
+                console.log(`[FFmpeg Overlay] Command: ${cmdLine.substring(0, 500)}...`);
+            })
             .on('progress', (progress) => {
                 if (onProgress && progress.percent) {
                     onProgress(Math.min(99, Math.floor(progress.percent)));
                 }
             })
             .on('end', () => {
-                console.log(`[FFmpeg Overlay] Successfully applied overlays to video`);
+                console.log(`[FFmpeg Overlay] Successfully applied ${videoOverlays.length} overlay(s) to video`);
+                // Clean up original video if it was a temp file
+                if (inputVideoPath.includes('temp') && inputVideoPath !== outputPath) {
+                    try { fs.unlinkSync(inputVideoPath); } catch { /* ignore */ }
+                }
                 resolve(outputPath);
             })
-            .on('error', (err) => {
-                console.error(`[FFmpeg Overlay] Error:`, err);
-                reject(new Error(`FFmpeg overlay error: ${err.message}`));
+            .on('error', (err, stdout, stderr) => {
+                console.error(`[FFmpeg Overlay] Error:`, err.message);
+                console.error(`[FFmpeg Overlay] stderr:`, stderr);
+                // Fall back to returning original video on error
+                console.warn('[FFmpeg Overlay] Falling back to original video without overlays');
+                resolve(inputVideoPath);
             })
             .run();
+    });
+}
+
+/**
+ * Get video dimensions and metadata
+ */
+interface VideoInfo {
+    width: number;
+    height: number;
+    duration: number;
+}
+
+async function getVideoInfo(videoPath: string): Promise<VideoInfo> {
+    return new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(videoPath, (err, metadata) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+            
+            const videoStream = metadata.streams.find(s => s.codec_type === 'video');
+            if (!videoStream) {
+                reject(new Error('No video stream found'));
+                return;
+            }
+
+            resolve({
+                width: videoStream.width || 1920,
+                height: videoStream.height || 1080,
+                duration: metadata.format.duration || 0
+            });
+        });
     });
 }
 
