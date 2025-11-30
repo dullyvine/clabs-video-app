@@ -87,6 +87,7 @@ export interface ScriptAnalysisResponse {
 // Stock video types
 export type StockVideoProvider = 'storyblocks' | 'pexels' | 'both';
 export type StockVideoOrientation = 'landscape' | 'portrait' | 'square';
+export type StockVideoOrientationOption = StockVideoOrientation | 'any';
 
 export interface StockVideoAsset {
     id: string;
@@ -104,18 +105,30 @@ export interface StockVideoRequest {
     script: string;
     niche: string;
     provider?: StockVideoProvider;
+    videoCount?: number;
+    orientation?: StockVideoOrientationOption;
+    alternativesPerSlot?: number;
 }
 
+export interface StockVideoSlot {
+    id: string;
+    keywords: string[];
+    description: string;
+    video: StockVideoAsset;
+    alternatives: StockVideoAsset[];
+}
+
+export interface StockVideoResponse {
+    slots: StockVideoSlot[];
+}
+
+// Legacy scene type for backward compatibility
 export interface StockVideoScene {
     id: string;
     keywords: string[];
     sceneDescription: string;
     suggestedVideos: StockVideoAsset[];
     selectedVideo?: StockVideoAsset;
-}
-
-export interface StockVideoResponse {
-    scenes: StockVideoScene[];
 }
 
 export interface StockVideoSearchRequest {

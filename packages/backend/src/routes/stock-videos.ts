@@ -3,7 +3,10 @@ import {
     StockVideoRequest,
     StockVideoResponse,
     StockVideoSearchRequest,
-    StockVideoSearchResponse
+    StockVideoSearchResponse,
+    StockVideoOrientationOption,
+    StockVideoSlot,
+    StockVideoAsset
 } from 'shared/src/types';
 import { generateStockVideoKeywords } from '../services/llm.service';
 import { searchStockVideos } from '../services/stock.service';
@@ -13,93 +16,88 @@ export const stockVideosRouter = express.Router();
 
 stockVideosRouter.post('/analyze', async (req, res) => {
     try {
-        const { script, niche, provider = 'both' }: StockVideoRequest = req.body;
+        const {
+            script,
+            niche,
+            provider = 'both',
+            videoCount = 10,
+            orientation = 'landscape',
+            alternativesPerSlot = 5
+        }: StockVideoRequest = req.body;
 
         if (!script) {
             return res.status(400).json({ error: 'Script is required' });
         }
 
-        // Use analyzeScript to get comprehensive analysis
+        const normalizedOrientation: StockVideoOrientationOption = orientation || 'landscape';
+        const targetVideoCount = Math.max(3, Math.min(30, videoCount));
+        const altCount = Math.max(3, Math.min(10, alternativesPerSlot));
+
+        // Generate keywords from script analysis
         const scenesData = await generateStockVideoKeywords(script, niche);
 
-        // Ensure we have valid scenes with keywords
-        const validScenes = scenesData.filter((scene: any) => 
-            scene.keywords && scene.keywords.length > 0
-        );
+        // Collect all keywords from all scenes
+        const allKeywords: string[] = [];
+        scenesData.forEach((scene: any) => {
+            if (scene.keywords && Array.isArray(scene.keywords)) {
+                allKeywords.push(...scene.keywords);
+            }
+        });
 
-        if (validScenes.length === 0) {
-            console.warn('No valid scenes with keywords found, creating fallback scenes');
-            // Fallback: split script into sentences for scenes
-            const sentences = script.split(/[.!?]+/).filter(s => s.trim().length > 10);
-            const fallbackScenes = sentences.slice(0, 5).map((sentence, idx) => ({
-                id: `scene-${idx + 1}`,
-                sceneDescription: sentence.trim().substring(0, 100),
-                keywords: sentence.trim().split(' ')
-                    .filter(w => w.length > 4)
-                    .slice(0, 3)
-                    .map(w => w.toLowerCase())
-            }));
-            
-            const scenes = await Promise.all(
-                fallbackScenes.map(async (scene: any) => {
-                    const videos = await searchStockVideos(scene.keywords, provider, {
-                        query: scene.sceneDescription,
-                        perPage: 8,
-                        orientation: 'landscape'
-                    });
-                    return {
-                        id: scene.id,
-                        sceneDescription: scene.sceneDescription,
-                        keywords: scene.keywords,
-                        suggestedVideos: videos.map((v: any) => ({
-                            id: v.id,
-                            url: v.url,
-                            thumbnailUrl: v.thumbnailUrl,
-                            duration: v.duration,
-                            title: v.title,
-                            provider: v.provider,
-                            previewUrl: v.previewUrl,
-                            sourceUrl: v.sourceUrl,
-                            resolution: v.resolution
-                        }))
-                    };
-                })
-            );
-            
-            return res.json({ scenes });
+        // If no keywords, fallback to script words
+        if (allKeywords.length === 0) {
+            const words = script.split(/\s+/).filter(w => w.length > 4).slice(0, 30);
+            allKeywords.push(...words.map(w => w.toLowerCase()));
         }
 
-        // For each scene, search for stock videos using keywords
-        const scenes = await Promise.all(
-            validScenes.map(async (scene: any) => {
-                const videos = await searchStockVideos(scene.keywords, provider, {
-                    query: scene.sceneDescription,
-                    perPage: 8,
-                    orientation: 'landscape'
+        // Distribute keywords across video slots
+        const keywordsPerSlot = Math.max(2, Math.ceil(allKeywords.length / targetVideoCount));
+        
+        const slots: StockVideoSlot[] = [];
+        
+        for (let i = 0; i < targetVideoCount; i++) {
+            const startIdx = i * keywordsPerSlot;
+            const slotKeywords = allKeywords.slice(startIdx, startIdx + keywordsPerSlot);
+            
+            // Fallback if no keywords for this slot
+            if (slotKeywords.length === 0) {
+                slotKeywords.push(...allKeywords.slice(0, 3));
+            }
+
+            const query = slotKeywords.slice(0, 3).join(' ');
+            
+            // Search for videos - get enough for main + alternatives
+            const videos = await searchStockVideos(slotKeywords, provider, {
+                query,
+                perPage: altCount + 1,
+                orientation: normalizedOrientation === 'any' ? undefined : normalizedOrientation
+            });
+
+            const mappedVideos: StockVideoAsset[] = videos.map((v: any) => ({
+                id: v.id,
+                url: v.url,
+                thumbnailUrl: v.thumbnailUrl,
+                duration: v.duration,
+                title: v.title,
+                provider: v.provider,
+                previewUrl: v.previewUrl,
+                sourceUrl: v.sourceUrl,
+                resolution: v.resolution
+            }));
+
+            if (mappedVideos.length > 0) {
+                slots.push({
+                    id: `slot-${i + 1}`,
+                    keywords: slotKeywords,
+                    description: query,
+                    video: mappedVideos[0],
+                    alternatives: mappedVideos.slice(1)
                 });
-                return {
-                    id: scene.id,
-                    sceneDescription: scene.sceneDescription,
-                    keywords: scene.keywords,
-                    suggestedVideos: videos.map((v: any) => ({
-                        id: v.id,
-                        url: v.url,
-                        thumbnailUrl: v.thumbnailUrl,
-                        duration: v.duration,
-                        title: v.title,
-                        provider: v.provider,
-                        previewUrl: v.previewUrl,
-                        sourceUrl: v.sourceUrl,
-                        resolution: v.resolution
-                    }))
-                };
-            })
-        );
+            }
+        }
 
-        const response: StockVideoResponse = {
-            scenes
-        };
-
+        // If we didn't get enough slots, that's okay - return what we have
+        const response: StockVideoResponse = { slots };
         res.json(response);
     } catch (error: any) {
         console.error('Stock video analysis error:', error);
