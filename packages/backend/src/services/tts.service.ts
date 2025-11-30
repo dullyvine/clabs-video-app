@@ -387,39 +387,67 @@ async function downloadAudio(url: string): Promise<VoiceoverResponse> {
 
 // === GEMINI TTS IMPLEMENTATION ===
 
+// Voice metadata from official Gemini docs with style descriptions
 const GEMINI_VOICES = [
-    { id: 'achernar', label: 'Achernar' },
-    { id: 'achird', label: 'Achird' },
-    { id: 'algenib', label: 'Algenib' },
-    { id: 'algieba', label: 'Algieba' },
-    { id: 'alnilam', label: 'Alnilam' },
-    { id: 'aoede', label: 'Aoede' },
-    { id: 'autonoe', label: 'Autonoe' },
-    { id: 'callirrhoe', label: 'Callirrhoe' },
-    { id: 'charon', label: 'Charon' },
-    { id: 'despina', label: 'Despina' },
-    { id: 'enceladus', label: 'Enceladus' },
-    { id: 'erinome', label: 'Erinome' },
-    { id: 'fenrir', label: 'Fenrir' },
-    { id: 'gacrux', label: 'Gacrux' },
-    { id: 'iapetus', label: 'Iapetus' },
-    { id: 'kore', label: 'Kore' },
-    { id: 'laomedeia', label: 'Laomedeia' },
-    { id: 'leda', label: 'Leda' },
-    { id: 'orus', label: 'Orus' },
-    { id: 'puck', label: 'Puck' },
-    { id: 'pulcherrima', label: 'Pulcherrima' },
-    { id: 'rasalgethi', label: 'Rasalgethi' },
-    { id: 'sadachbia', label: 'Sadachbia' },
-    { id: 'sadaltager', label: 'Sadaltager' },
-    { id: 'schedar', label: 'Schedar' },
-    { id: 'sulafat', label: 'Sulafat' },
-    { id: 'umbriel', label: 'Umbriel' },
-    { id: 'vindemiatrix', label: 'Vindemiatrix' },
-    { id: 'zephyr', label: 'Zephyr' },
-    { id: 'zubenelgenubi', label: 'Zubenelgenubi' }
+    { id: 'zephyr', label: 'Zephyr', style: 'Bright' },
+    { id: 'puck', label: 'Puck', style: 'Upbeat' },
+    { id: 'charon', label: 'Charon', style: 'Informative' },
+    { id: 'kore', label: 'Kore', style: 'Firm' },
+    { id: 'fenrir', label: 'Fenrir', style: 'Excitable' },
+    { id: 'leda', label: 'Leda', style: 'Youthful' },
+    { id: 'orus', label: 'Orus', style: 'Firm' },
+    { id: 'aoede', label: 'Aoede', style: 'Breezy' },
+    { id: 'callirrhoe', label: 'Callirrhoe', style: 'Easy-going' },
+    { id: 'autonoe', label: 'Autonoe', style: 'Bright' },
+    { id: 'enceladus', label: 'Enceladus', style: 'Breathy' },
+    { id: 'iapetus', label: 'Iapetus', style: 'Clear' },
+    { id: 'umbriel', label: 'Umbriel', style: 'Easy-going' },
+    { id: 'algieba', label: 'Algieba', style: 'Smooth' },
+    { id: 'despina', label: 'Despina', style: 'Smooth' },
+    { id: 'erinome', label: 'Erinome', style: 'Clear' },
+    { id: 'algenib', label: 'Algenib', style: 'Gravelly' },
+    { id: 'rasalgethi', label: 'Rasalgethi', style: 'Informative' },
+    { id: 'laomedeia', label: 'Laomedeia', style: 'Upbeat' },
+    { id: 'achernar', label: 'Achernar', style: 'Soft' },
+    { id: 'alnilam', label: 'Alnilam', style: 'Firm' },
+    { id: 'schedar', label: 'Schedar', style: 'Even' },
+    { id: 'gacrux', label: 'Gacrux', style: 'Mature' },
+    { id: 'pulcherrima', label: 'Pulcherrima', style: 'Forward' },
+    { id: 'achird', label: 'Achird', style: 'Friendly' },
+    { id: 'zubenelgenubi', label: 'Zubenelgenubi', style: 'Casual' },
+    { id: 'vindemiatrix', label: 'Vindemiatrix', style: 'Gentle' },
+    { id: 'sadachbia', label: 'Sadachbia', style: 'Lively' },
+    { id: 'sadaltager', label: 'Sadaltager', style: 'Knowledgeable' },
+    { id: 'sulafat', label: 'Sulafat', style: 'Warm' }
 ];
 const GEMINI_DEFAULT_VOICE = 'kore';
+
+// Short sample text for voice preview - varies by style
+const PREVIEW_TEXTS: Record<string, string> = {
+    'default': 'Hello! This is a preview of my voice. I hope you like how I sound!',
+    'Bright': 'Hey there! Welcome! This is my voice, and I am so excited to share it with you!',
+    'Upbeat': 'Hi! Ready to make something awesome? Let me show you what I can do!',
+    'Informative': 'Good day. Allow me to demonstrate my voice capabilities for your project.',
+    'Firm': 'Welcome. This is my voice. Clear, confident, and ready for your content.',
+    'Excitable': 'Oh wow! Hi there! This is going to be amazing! Listen to my voice!',
+    'Youthful': 'Hey! Super excited to be here! Check out how I sound!',
+    'Breezy': 'Hey, just wanted to say hi. This is how I sound. Pretty chill, right?',
+    'Easy-going': 'Hey there. Just giving you a quick sample of my voice. Nice and relaxed.',
+    'Breathy': 'Hi there... this is my voice... soft and expressive, just for you.',
+    'Clear': 'Hello and welcome. My voice is designed for clarity and understanding.',
+    'Smooth': 'Hello there. Listen to the smooth, flowing quality of my voice.',
+    'Gravelly': 'Hey. This is my voice. Got that distinctive texture you might be looking for.',
+    'Soft': 'Hello... this is a gentle preview of my voice for you to hear.',
+    'Even': 'Hello. This is my voice. Balanced and steady throughout.',
+    'Mature': 'Good day. This voice carries experience and depth in every word.',
+    'Forward': 'Hello! Let me get right to it - this is my voice, direct and clear!',
+    'Friendly': 'Hi there! So nice to meet you! This is what I sound like.',
+    'Casual': 'Hey, what\'s up? Just giving you a quick listen to my voice.',
+    'Gentle': 'Hello, dear listener. Here is a soft sample of my voice for you.',
+    'Lively': 'Hey hey! Excited to show you my voice! Let\'s make something great!',
+    'Knowledgeable': 'Greetings. I present to you a demonstration of my vocal qualities.',
+    'Warm': 'Hello there. Welcome. Let me share the warmth of my voice with you.'
+};
 
 async function listGeminiVoices(filters?: { language?: string; gender?: string; age?: string }) {
     if (!GEMINI_API_KEY) {
@@ -427,15 +455,40 @@ async function listGeminiVoices(filters?: { language?: string; gender?: string; 
         return [];
     }
 
-    // Gemini TTS has 30 pre-built voices
-    // Note: Gemini voices don't have detailed metadata like gender/age in the API,
-    // but we return all voices for now.  The API supports 24 languages.
+    // Gemini TTS has 30 pre-built voices with style descriptions
+    // The API supports 24 languages and auto-detects input language
     return GEMINI_VOICES.map((voice) => ({
         voice_id: voice.id,
         voice_name: voice.label,
-        tag_list: ['English'], // Gemini supports 24 languages, but metadata isn't exposed per voice
+        tag_list: [voice.style, 'Multi-language'],
+        style: voice.style,
         category: 'gemini-tts'
     }));
+}
+
+/**
+ * Generate a short voice preview sample (5-10 seconds)
+ */
+export async function generateVoicePreview(
+    voiceService: VoiceService,
+    voiceId: string,
+    model?: GeminiTTSModel
+): Promise<VoiceoverResponse> {
+    if (voiceService === 'gemini') {
+        // Find voice style for appropriate preview text
+        const voice = GEMINI_VOICES.find(v => v.id === voiceId.toLowerCase());
+        const style = voice?.style || 'default';
+        const previewText = PREVIEW_TEXTS[style] || PREVIEW_TEXTS['default'];
+        
+        return generateGeminiVoiceover(previewText, voiceId, model || 'gemini-2.5-flash-preview-tts');
+    } else if (voiceService === 'gen-ai-pro') {
+        const previewText = 'Hello! This is a preview of my voice. I hope you like how I sound!';
+        return generateGenAiProVoiceover(previewText, voiceId);
+    } else if (voiceService === 'ai33') {
+        const previewText = 'Hello! This is a preview of my voice. I hope you like how I sound!';
+        return generateAi33Voiceover(previewText, voiceId);
+    }
+    throw new Error(`Unsupported voice service: ${voiceService}`);
 }
 
 /**

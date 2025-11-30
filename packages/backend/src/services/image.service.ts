@@ -25,22 +25,15 @@ interface ImageModelInfo {
 }
 
 const GEMINI_IMAGE_MODELS: Record<GeminiImageModelId, ImageModelInfo> = {
-    // Nano Banana family (uses generateContent API)
-    'gemini-2.5-flash-image': {
-        name: 'Nano Banana (Fast)',
-        description: 'Fast, high-quality image generation',
-        apiModel: 'gemini-2.5-flash-image',
-        family: 'nano-banana'
+    // Imagen family (uses generateImages API) - FAST options first
+    'imagen-4.0-fast-generate-001': {
+        name: 'Imagen 4 Fast ⚡',
+        description: 'Fastest option - optimized for speed while maintaining good quality',
+        apiModel: 'imagen-4.0-fast-generate-001',
+        family: 'imagen'
     },
-    'gemini-2.5-pro-image': {
-        name: 'Nano Banana Pro (Best Quality)',
-        description: 'Highest quality Gemini image model',
-        apiModel: 'gemini-2.5-pro-image',
-        family: 'nano-banana'
-    },
-    // Imagen family (uses generateImages API)
     'imagen-4.0-generate-001': {
-        name: 'Imagen 4 (Standard)',
+        name: 'Imagen 4 (Balanced)',
         description: 'High-fidelity image generation, great balance of quality and speed',
         apiModel: 'imagen-4.0-generate-001',
         family: 'imagen'
@@ -51,11 +44,18 @@ const GEMINI_IMAGE_MODELS: Record<GeminiImageModelId, ImageModelInfo> = {
         apiModel: 'imagen-4.0-ultra-generate-001',
         family: 'imagen'
     },
-    'imagen-4.0-fast-generate-001': {
-        name: 'Imagen 4 Fast (Fastest)',
-        description: 'Optimized for speed while maintaining good quality',
-        apiModel: 'imagen-4.0-fast-generate-001',
-        family: 'imagen'
+    // Nano Banana family (uses generateContent API)
+    'gemini-2.5-flash-image': {
+        name: 'Gemini Flash Image ⚡',
+        description: 'Fast, good-quality Gemini image generation',
+        apiModel: 'gemini-2.5-flash-image',
+        family: 'nano-banana'
+    },
+    'gemini-2.5-pro-image': {
+        name: 'Gemini Pro Image (Best Quality)',
+        description: 'Highest quality Gemini image model',
+        apiModel: 'gemini-2.5-pro-image',
+        family: 'nano-banana'
     }
 };
 
@@ -257,29 +257,94 @@ async function generateGeminiImage(
     }
 }
 
+/**
+ * Generate multiple images in parallel for faster batch processing
+ * Includes retry logic to ensure all requested images are generated
+ */
 export async function generateMultipleImages(
     prompts: string[],
     service: ImageService,
     model: ImageModel,
     aspectRatio: AspectRatio
 ): Promise<ImageGenerationResponse[]> {
-    const results = [];
-    for (let i = 0; i < prompts.length; i++) {
-        try {
-            const result = await generateImage(
-                prompts[i],
-                service,
-                model,
-                aspectRatio,
-                { promptIndex: i, prompt: prompts[i] }
-            );
-            results.push(result);
-        } catch (err) {
-            console.error(`Failed to generate image ${i}:`, err);
+    console.log(`[Image Service] Generating ${prompts.length} images in parallel using ${model}`);
+    
+    // Use conservative batch size to avoid rate limits
+    const batchSize = 3; 
+    const maxRetries = 5; // Increased retries
+    
+    // Track results by index to maintain order
+    const resultsByIndex: Map<number, ImageGenerationResponse> = new Map();
+    
+    // Track which indices still need to be generated
+    let pendingIndices = prompts.map((_, i) => i);
+    let retryCount = 0;
+    
+    while (pendingIndices.length > 0 && retryCount < maxRetries) {
+        if (retryCount > 0) {
+            const delay = 2000 * Math.pow(2, retryCount - 1); // Exponential backoff: 2s, 4s, 8s, 16s...
+            console.log(`[Image Service] Retry ${retryCount}/${maxRetries} for ${pendingIndices.length} failed images. Waiting ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const failedIndices: number[] = [];
+        
+        // Process in batches
+        for (let batchStart = 0; batchStart < pendingIndices.length; batchStart += batchSize) {
+            const batchIndices = pendingIndices.slice(batchStart, batchStart + batchSize);
+            const batchPromises = batchIndices.map(globalIndex => {
+                const prompt = prompts[globalIndex];
+                return generateImage(
+                    prompt,
+                    service,
+                    model,
+                    aspectRatio,
+                    { promptIndex: globalIndex, prompt }
+                ).then(result => ({ globalIndex, result }))
+                .catch(err => {
+                    const isRateLimit = err.message?.includes('429') || err.message?.includes('quota') || err.message?.includes('Too Many Requests');
+                    console.error(`[Image Service] Failed to generate image ${globalIndex} (${isRateLimit ? 'Rate Limit' : 'Error'}):`, err.message || err);
+                    return { globalIndex, result: null, error: err };
+                });
+            });
+            
+            const batchResults = await Promise.all(batchPromises);
+            
+            for (const { globalIndex, result } of batchResults) {
+                if (result) {
+                    resultsByIndex.set(globalIndex, result);
+                } else {
+                    failedIndices.push(globalIndex);
+                }
+            }
+            
+            // Delay between batches
+            if (batchStart + batchSize < pendingIndices.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        
+        pendingIndices = failedIndices;
+        retryCount++;
     }
-    return results;
+    
+    // Log final status
+    const successCount = resultsByIndex.size;
+    if (pendingIndices.length > 0) {
+        console.warn(`[Image Service] Could not generate ${pendingIndices.length} images after ${maxRetries} retries: indices ${pendingIndices.join(', ')}`);
+    }
+    console.log(`[Image Service] Successfully generated ${successCount}/${prompts.length} images`);
+    
+    // Return results in order
+    const orderedResults: ImageGenerationResponse[] = [];
+    for (let i = 0; i < prompts.length; i++) {
+        const result = resultsByIndex.get(i);
+        if (result) {
+            orderedResults.push(result);
+        }
+    }
+    
+    return orderedResults;
 }
 
 async function requestGeminiImage(model: string, prompt: string, aspectRatio: AspectRatio): Promise<{ base64Data: string; mimeType: string }> {

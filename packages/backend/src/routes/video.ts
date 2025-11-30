@@ -18,6 +18,9 @@ import { tempUpload } from '../utils/upload';
 
 export const videoRouter = express.Router();
 
+// Maximum time for video generation (10 minutes)
+const VIDEO_GENERATION_TIMEOUT_MS = 10 * 60 * 1000;
+
 // Generate final video
 videoRouter.post('/generate', async (req, res) => {
     try {
@@ -96,7 +99,15 @@ videoRouter.post('/overlay/upload', tempUpload.single('overlay'), (req, res) => 
 
 // Async video generation function
 async function generateVideoAsync(jobId: string, request: VideoGenerationRequest) {
-    try {
+    // Create a timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+            reject(new Error(`Video generation timed out after ${VIDEO_GENERATION_TIMEOUT_MS / 1000}s`));
+        }, VIDEO_GENERATION_TIMEOUT_MS);
+    });
+
+    // Create the actual generation promise
+    const generationPromise = (async () => {
         updateJob(jobId, { status: 'processing', progress: 10 });
 
         let videoPath: string;
@@ -283,6 +294,13 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                 estimatedFileSize: fs.statSync(videoPath).size
             }
         });
+
+        return videoPath;
+    })();
+
+    // Race between timeout and generation
+    try {
+        await Promise.race([generationPromise, timeoutPromise]);
     } catch (error: any) {
         console.error(`Video generation failed for job ${jobId}:`, error);
         updateJob(jobId, {

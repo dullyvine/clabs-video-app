@@ -59,10 +59,13 @@ export async function generateSingleImageVideo(
         command = command
             .outputOptions([
                 '-c:v libx264',
+                '-preset ultrafast',
+                '-crf 28',
                 '-tune stillimage',
                 '-c:a aac',
                 '-b:a 192k',
                 '-pix_fmt yuv420p',
+                '-threads 4',
                 '-shortest'
             ])
             .output(outputPath);
@@ -76,8 +79,23 @@ export async function generateSingleImageVideo(
 
         command.on('end', async () => {
             try {
-                if (onProgress) onProgress(100);
-                const finalPath = await applyVideoOverlays(outputPath, options.overlays, onProgress);
+                const hasOverlays = Boolean(options.overlays && options.overlays.length);
+                if (onProgress) {
+                    onProgress(hasOverlays ? 80 : 100);
+                }
+
+                const overlayProgress = hasOverlays && onProgress
+                    ? (progressValue: number) => {
+                        const scaled = 80 + Math.floor(progressValue * 0.2);
+                        onProgress(Math.min(99, scaled));
+                    }
+                    : undefined;
+
+                const finalPath = await applyVideoOverlays(outputPath, options.overlays, overlayProgress);
+
+                if (hasOverlays && onProgress) {
+                    onProgress(100);
+                }
                 resolve(finalPath);
             } catch (err) {
                 reject(err);
@@ -111,9 +129,12 @@ export async function generateMultiImageVideo(
                 .inputOptions(['-loop 1', `-t ${duration}`])
                 .outputOptions([
                     '-c:v libx264',
+                    '-preset ultrafast',
+                    '-crf 28',
                     '-tune stillimage',
                     '-pix_fmt yuv420p',
-                    '-r 30'
+                    '-r 30',
+                    '-threads 4'
                 ])
                 .output(clipPath)
                 .on('end', () => resolve())
@@ -140,9 +161,12 @@ export async function generateMultiImageVideo(
             .input(options.audioPath)
             .outputOptions([
                 '-c:v libx264',
+                '-preset ultrafast',
+                '-crf 28',
                 '-pix_fmt yuv420p',
                 '-c:a aac',
                 '-b:a 192k',
+                '-threads 4',
                 '-shortest'
             ])
             .output(outputPath);
@@ -155,12 +179,27 @@ export async function generateMultiImageVideo(
 
         command.on('end', async () => {
             try {
-                if (onProgress) onProgress(100);
                 fs.unlinkSync(concatListPath);
                 videoClips.forEach(clip => {
                     try { fs.unlinkSync(clip); } catch { /* ignore */ }
                 });
-                const finalPath = await applyVideoOverlays(outputPath, options.overlays, onProgress);
+                const hasOverlays = Boolean(options.overlays && options.overlays.length);
+                if (onProgress) {
+                    onProgress(hasOverlays ? 80 : 100);
+                }
+
+                const overlayProgress = hasOverlays && onProgress
+                    ? (progressValue: number) => {
+                        const scaled = 80 + Math.floor(progressValue * 0.2);
+                        onProgress(Math.min(99, scaled));
+                    }
+                    : undefined;
+
+                const finalPath = await applyVideoOverlays(outputPath, options.overlays, overlayProgress);
+
+                if (hasOverlays && onProgress) {
+                    onProgress(100);
+                }
                 resolve(finalPath);
             } catch (err) {
                 reject(err);
@@ -194,9 +233,12 @@ export async function generateStockVideoComposition(
             .input(options.audioPath)
             .outputOptions([
                 '-c:v libx264',
+                '-preset ultrafast',
+                '-crf 28',
                 '-pix_fmt yuv420p',
                 '-c:a aac',
                 '-b:a 192k',
+                '-threads 4',
                 '-shortest'
             ])
             .output(outputPath);
@@ -210,7 +252,24 @@ export async function generateStockVideoComposition(
         command.on('end', async () => {
             try {
                 fs.unlinkSync(concatListPath);
-                const finalPath = await applyVideoOverlays(outputPath, options.overlays, onProgress);
+                const hasOverlays = Boolean(options.overlays && options.overlays.length);
+
+                if (onProgress) {
+                    onProgress(hasOverlays ? 80 : 100);
+                }
+
+                const overlayProgress = hasOverlays && onProgress
+                    ? (progressValue: number) => {
+                        const scaled = 80 + Math.floor(progressValue * 0.2);
+                        onProgress(Math.min(99, scaled));
+                    }
+                    : undefined;
+
+                const finalPath = await applyVideoOverlays(outputPath, options.overlays, overlayProgress);
+
+                if (hasOverlays && onProgress) {
+                    onProgress(100);
+                }
                 resolve(finalPath);
             } catch (err) {
                 reject(err);
@@ -307,10 +366,10 @@ async function applyVideoOverlays(
 
         // Build filter_complex for proper video compositing
         const filterParts: string[] = [];
-        
-        // Scale base video to ensure even dimensions (required for libx264)
-        filterParts.push(`[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[base]`);
-        
+
+        // Normalize base video to 30fps and ensure even dimensions (required for libx264)
+        filterParts.push(`[0:v]fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format=gbrap[base]`);
+
         let currentBase = 'base';
 
         videoOverlays.forEach((overlay, index) => {
@@ -319,46 +378,31 @@ async function applyVideoOverlays(
             const blendMode = mapBlendMode(overlay.blendMode);
             
             const scaledLabel = `scaled${index}`;
-            const preparedLabel = `prepared${index}`;
             const resultLabel = index === videoOverlays.length - 1 ? 'outv' : `result${index}`;
 
-            // Scale overlay to match base video dimensions
+            // Scale overlay to match base video dimensions and normalize timing
             filterParts.push(
-                `[${inputIdx}:v]scale=${baseInfo.width}:${baseInfo.height}:force_original_aspect_ratio=decrease,` +
-                `pad=${baseInfo.width}:${baseInfo.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[${scaledLabel}]`
+                `[${inputIdx}:v]fps=30,scale=${baseInfo.width}:${baseInfo.height}:force_original_aspect_ratio=decrease,` +
+                `pad=${baseInfo.width}:${baseInfo.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=gbrap,setpts=N/(30*TB)[${scaledLabel}]`
             );
 
             if (blendMode === 'normal') {
-                // For normal blend mode, use overlay filter with opacity
-                // Apply opacity using colorchannelmixer (efficient single filter)
                 if (opacity < 1) {
+                    // Use blend filter to control opacity while keeping accurate colors
                     filterParts.push(
-                        `[${scaledLabel}]colorchannelmixer=aa=${opacity}[${preparedLabel}]`
-                    );
-                    filterParts.push(
-                        `[${currentBase}][${preparedLabel}]overlay=0:0:format=auto[${resultLabel}]`
+                        `[${currentBase}][${scaledLabel}]blend=all_mode='normal':all_opacity=${opacity}[${resultLabel}]`
                     );
                 } else {
-                    // Full opacity - direct overlay
+                    // Full opacity - direct overlay while preserving original colors
                     filterParts.push(
-                        `[${currentBase}][${scaledLabel}]overlay=0:0:format=auto[${resultLabel}]`
+                            `[${currentBase}][${scaledLabel}]overlay=0:0:format=auto:shortest=1:eof_action=repeat[${resultLabel}]`
                     );
                 }
             } else {
-                // For special blend modes, use blend filter
-                // First apply opacity to overlay, then blend
-                if (opacity < 1) {
-                    filterParts.push(
-                        `[${scaledLabel}]colorchannelmixer=aa=${opacity}[${preparedLabel}]`
-                    );
-                    filterParts.push(
-                        `[${currentBase}][${preparedLabel}]blend=all_mode='${blendMode}'[${resultLabel}]`
-                    );
-                } else {
-                    filterParts.push(
-                        `[${currentBase}][${scaledLabel}]blend=all_mode='${blendMode}'[${resultLabel}]`
-                    );
-                }
+                // For special blend modes, rely on blend filter and respect opacity
+                filterParts.push(
+                    `[${currentBase}][${scaledLabel}]blend=all_mode='${blendMode}':all_opacity=${opacity}[${resultLabel}]`
+                );
             }
 
             currentBase = resultLabel;
@@ -376,11 +420,14 @@ async function applyVideoOverlays(
                 '-map', '[final]',
                 '-map', '0:a?',           // Include audio from base if present
                 '-c:v', 'libx264',
-                '-preset', 'fast',        // Fast preset for efficiency
-                '-crf', '23',             // Good quality/size balance
+                '-preset', 'ultrafast',
+                '-crf', '28',
+                '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac',
                 '-b:a', '192k',
-                '-movflags', '+faststart', // Web optimization
+                '-movflags', '+faststart',
+                '-threads', '4',
+                '-shortest',
                 '-t', String(baseDuration)
             ])
             .output(outputPath)

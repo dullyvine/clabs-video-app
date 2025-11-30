@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { VoiceoverRequest, VoiceoverResponse } from 'shared/src/types';
-import { generateVoiceover, listVoices } from '../services/tts.service';
+import { generateVoiceover, listVoices, generateVoicePreview } from '../services/tts.service';
 import { createJob, updateJob } from '../utils/jobs';
 import { trackFile } from '../services/file.service';
 
@@ -19,6 +19,23 @@ voiceoverRouter.post('/generate', async (req, res) => {
         res.json(result);
     } catch (error: any) {
         console.error('Voiceover generation error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Voice preview endpoint - generates a short sample to preview a voice
+voiceoverRouter.post('/preview', async (req, res) => {
+    try {
+        const { voiceService, voiceId, model } = req.body;
+
+        if (!voiceId) {
+            return res.status(400).json({ error: 'Voice ID is required' });
+        }
+
+        const result = await generateVoicePreview(voiceService, voiceId, model);
+        res.json(result);
+    } catch (error: any) {
+        console.error('Voice preview error:', error);
         res.status(500).json({ error: error.message });
     }
 });
