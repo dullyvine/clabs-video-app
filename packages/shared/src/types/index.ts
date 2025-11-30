@@ -86,6 +86,19 @@ export interface ScriptAnalysisResponse {
 
 // Stock video types
 export type StockVideoProvider = 'storyblocks' | 'pexels' | 'both';
+export type StockVideoOrientation = 'landscape' | 'portrait' | 'square';
+
+export interface StockVideoAsset {
+    id: string;
+    url: string;
+    thumbnailUrl: string;
+    duration: number;
+    title: string;
+    provider: StockVideoProvider;
+    previewUrl?: string;
+    sourceUrl?: string;
+    resolution?: { width: number; height: number };
+}
 
 export interface StockVideoRequest {
     script: string;
@@ -97,17 +110,26 @@ export interface StockVideoScene {
     id: string;
     keywords: string[];
     sceneDescription: string;
-    suggestedVideos: Array<{
-        id: string;
-        url: string;
-        thumbnailUrl: string;
-        duration: number;
-        title: string;
-    }>;
+    suggestedVideos: StockVideoAsset[];
+    selectedVideo?: StockVideoAsset;
 }
 
 export interface StockVideoResponse {
     scenes: StockVideoScene[];
+}
+
+export interface StockVideoSearchRequest {
+    keywords?: string[];
+    query?: string;
+    provider?: StockVideoProvider;
+    perPage?: number;
+    orientation?: StockVideoOrientation;
+    minDuration?: number;
+    maxDuration?: number;
+}
+
+export interface StockVideoSearchResponse {
+    videos: StockVideoAsset[];
 }
 
 // Overlay types

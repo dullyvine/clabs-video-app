@@ -30,3 +30,4 @@ FILE_MAX_AGE_MS=3600000
 STORYBLOCKS_PUBLIC_KEY=
 STORYBLOCKS_SECRET_KEY=
 PEXELS_API_KEY=
+# Required for live stock video search (Pexels). Without this key the app falls back to mock results.

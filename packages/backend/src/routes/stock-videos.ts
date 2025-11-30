@@ -1,5 +1,10 @@
 import express from 'express';
-import { StockVideoRequest, StockVideoResponse } from 'shared/src/types';
+import {
+    StockVideoRequest,
+    StockVideoResponse,
+    StockVideoSearchRequest,
+    StockVideoSearchResponse
+} from 'shared/src/types';
 import { generateStockVideoKeywords } from '../services/llm.service';
 import { searchStockVideos } from '../services/stock.service';
 
@@ -8,7 +13,7 @@ export const stockVideosRouter = express.Router();
 
 stockVideosRouter.post('/analyze', async (req, res) => {
     try {
-        const { script, niche, provider }: StockVideoRequest = req.body;
+        const { script, niche, provider = 'both' }: StockVideoRequest = req.body;
 
         if (!script) {
             return res.status(400).json({ error: 'Script is required' });
@@ -37,7 +42,11 @@ stockVideosRouter.post('/analyze', async (req, res) => {
             
             const scenes = await Promise.all(
                 fallbackScenes.map(async (scene: any) => {
-                    const videos = await searchStockVideos(scene.keywords, provider);
+                    const videos = await searchStockVideos(scene.keywords, provider, {
+                        query: scene.sceneDescription,
+                        perPage: 8,
+                        orientation: 'landscape'
+                    });
                     return {
                         id: scene.id,
                         sceneDescription: scene.sceneDescription,
@@ -47,7 +56,11 @@ stockVideosRouter.post('/analyze', async (req, res) => {
                             url: v.url,
                             thumbnailUrl: v.thumbnailUrl,
                             duration: v.duration,
-                            title: v.title
+                            title: v.title,
+                            provider: v.provider,
+                            previewUrl: v.previewUrl,
+                            sourceUrl: v.sourceUrl,
+                            resolution: v.resolution
                         }))
                     };
                 })
@@ -59,7 +72,11 @@ stockVideosRouter.post('/analyze', async (req, res) => {
         // For each scene, search for stock videos using keywords
         const scenes = await Promise.all(
             validScenes.map(async (scene: any) => {
-                const videos = await searchStockVideos(scene.keywords, provider);
+                const videos = await searchStockVideos(scene.keywords, provider, {
+                    query: scene.sceneDescription,
+                    perPage: 8,
+                    orientation: 'landscape'
+                });
                 return {
                     id: scene.id,
                     sceneDescription: scene.sceneDescription,
@@ -69,7 +86,11 @@ stockVideosRouter.post('/analyze', async (req, res) => {
                         url: v.url,
                         thumbnailUrl: v.thumbnailUrl,
                         duration: v.duration,
-                        title: v.title
+                        title: v.title,
+                        provider: v.provider,
+                        previewUrl: v.previewUrl,
+                        sourceUrl: v.sourceUrl,
+                        resolution: v.resolution
                     }))
                 };
             })
@@ -86,16 +107,45 @@ stockVideosRouter.post('/analyze', async (req, res) => {
     }
 });
 
-stockVideosRouter.get('/search', async (req, res) => {
+stockVideosRouter.post('/search', async (req, res) => {
     try {
-        const keywords = (req.query.keywords as string)?.split(',') || [];
+        const {
+            keywords = [],
+            query,
+            provider = 'pexels',
+            perPage,
+            orientation,
+            minDuration,
+            maxDuration
+        }: StockVideoSearchRequest = req.body || {};
 
-        if (keywords.length === 0) {
-            return res.status(400).json({ error: 'Keywords are required' });
+        if ((!query || query.trim().length === 0) && (!keywords || keywords.length === 0)) {
+            return res.status(400).json({ error: 'A query or keywords are required' });
         }
 
-        const videos = await searchStockVideos(keywords);
-        res.json({ videos });
+        const videos = await searchStockVideos(keywords || [], provider, {
+            query: query?.trim(),
+            perPage,
+            orientation,
+            minDuration,
+            maxDuration
+        });
+
+        const response: StockVideoSearchResponse = {
+            videos: videos.map((video) => ({
+                id: video.id,
+                url: video.url,
+                thumbnailUrl: video.thumbnailUrl,
+                duration: video.duration,
+                title: video.title,
+                provider: video.provider,
+                previewUrl: video.previewUrl,
+                sourceUrl: video.sourceUrl,
+                resolution: video.resolution
+            }))
+        };
+
+        res.json(response);
     } catch (error: any) {
         console.error('Stock video search error:', error);
         res.status(500).json({ error: error.message });
