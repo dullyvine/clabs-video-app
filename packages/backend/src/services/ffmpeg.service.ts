@@ -12,6 +12,7 @@ export interface VideoCompositionOptions {
     audioPath: string;
     audioDuration: number;
     outputPath?: string;
+    captionFile?: string; // Path to SRT or ASS file for burning captions
 }
 
 export interface SingleImageOptions extends VideoCompositionOptions {
@@ -28,6 +29,73 @@ export interface StockVideoOptions extends VideoCompositionOptions {
     videos: Array<{ videoPath: string; duration?: number; startTime?: number }>;
     loop?: boolean;
     overlays?: InternalOverlay[];
+}
+
+export interface VideoTimingSlot {
+    videoPath: string;
+    originalDuration: number;
+    targetDuration: number;
+    startTime: number;
+    endTime: number;
+    needsLoop: boolean;
+    needsTrim: boolean;
+}
+
+/**
+ * Calculate smart timing for stock videos based on voiceover duration
+ * Distributes videos evenly across the audio duration
+ */
+export async function calculateSmartVideoTiming(
+    videos: Array<{ videoPath: string; duration?: number }>,
+    audioDuration: number
+): Promise<VideoTimingSlot[]> {
+    const videoCount = videos.length;
+    const targetDurationPerVideo = audioDuration / videoCount;
+    
+    console.log(`[Smart Timing] Audio: ${audioDuration.toFixed(1)}s, Videos: ${videoCount}, Target per video: ${targetDurationPerVideo.toFixed(1)}s`);
+    
+    const slots: VideoTimingSlot[] = [];
+    let currentTime = 0;
+    
+    for (let i = 0; i < videos.length; i++) {
+        const video = videos[i];
+        let originalDuration = video.duration;
+        
+        // Get actual duration if not provided
+        if (!originalDuration) {
+            try {
+                originalDuration = await getVideoDuration(video.videoPath);
+            } catch {
+                originalDuration = targetDurationPerVideo; // Fallback
+            }
+        }
+        
+        // Calculate target duration for this slot
+        // Last video fills remaining time to ensure exact match
+        const isLast = i === videos.length - 1;
+        const targetDuration = isLast 
+            ? audioDuration - currentTime 
+            : targetDurationPerVideo;
+        
+        const needsLoop = originalDuration < targetDuration;
+        const needsTrim = originalDuration > targetDuration;
+        
+        slots.push({
+            videoPath: video.videoPath,
+            originalDuration,
+            targetDuration,
+            startTime: currentTime,
+            endTime: currentTime + targetDuration,
+            needsLoop,
+            needsTrim
+        });
+        
+        currentTime += targetDuration;
+    }
+    
+    console.log(`[Smart Timing] Calculated ${slots.length} slots, total: ${currentTime.toFixed(1)}s`);
+    
+    return slots;
 }
 
 type InternalOverlay = Overlay & { filePath?: string };
@@ -220,9 +288,61 @@ export async function generateStockVideoComposition(
 ): Promise<string> {
     const outputPath = options.outputPath || getTempFilePath('mp4');
 
+    // Calculate smart timing based on audio duration
+    const timingSlots = await calculateSmartVideoTiming(options.videos, options.audioDuration);
+    
+    console.log(`[Stock Video] Processing ${timingSlots.length} videos with smart timing`);
+
+    // Create individual clips with correct durations
+    const processedClips: string[] = [];
+    
+    for (let i = 0; i < timingSlots.length; i++) {
+        const slot = timingSlots[i];
+        const clipPath = getTempFilePath('mp4');
+        
+        if (onProgress) {
+            onProgress(Math.floor((i / timingSlots.length) * 40));
+        }
+        
+        await new Promise<void>((resolve, reject) => {
+            let cmd = ffmpeg().input(slot.videoPath);
+            
+            // If video is shorter than target, loop it
+            if (slot.needsLoop) {
+                cmd = cmd.inputOptions([
+                    '-stream_loop', '-1',
+                    '-t', String(slot.targetDuration)
+                ]);
+            }
+            
+            cmd = cmd.outputOptions([
+                '-c:v libx264',
+                '-preset ultrafast',
+                '-crf 28',
+                '-pix_fmt yuv420p',
+                '-r 30',
+                '-threads 4',
+                '-t', String(slot.targetDuration),
+                '-an' // No audio for clips
+            ])
+            .output(clipPath)
+            .on('end', () => resolve())
+            .on('error', (err) => {
+                console.error(`[Stock Video] Error processing clip ${i}:`, err.message);
+                reject(err);
+            });
+            
+            cmd.run();
+        });
+        
+        processedClips.push(clipPath);
+        console.log(`[Stock Video] Processed clip ${i + 1}/${timingSlots.length}: ${slot.targetDuration.toFixed(1)}s`);
+    }
+
+    // Concatenate all processed clips
     const concatListPath = getTempFilePath('txt');
-    const concatList = options.videos
-        .map(video => `file '${normalizeConcatPath(video.videoPath)}'`)
+    const concatList = processedClips
+        .map(clip => `file '${normalizeConcatPath(clip)}'`)
         .join('\n');
     fs.writeFileSync(concatListPath, concatList);
 
@@ -245,13 +365,18 @@ export async function generateStockVideoComposition(
 
         command.on('progress', (progress) => {
             if (onProgress && progress.percent) {
-                onProgress(Math.min(99, Math.floor(progress.percent)));
+                onProgress(Math.min(99, Math.floor(40 + progress.percent * 0.4)));
             }
         });
 
         command.on('end', async () => {
             try {
+                // Cleanup
                 fs.unlinkSync(concatListPath);
+                processedClips.forEach(clip => {
+                    try { fs.unlinkSync(clip); } catch { /* ignore */ }
+                });
+                
                 const hasOverlays = Boolean(options.overlays && options.overlays.length);
 
                 if (onProgress) {
@@ -278,8 +403,78 @@ export async function generateStockVideoComposition(
 
         command.on('error', (err) => {
             try { fs.unlinkSync(concatListPath); } catch { /* ignore */ }
+            processedClips.forEach(clip => {
+                try { fs.unlinkSync(clip); } catch { /* ignore */ }
+            });
             reject(new Error(`FFmpeg stock video error: ${err.message}`));
         });
+
+        command.run();
+    });
+}
+
+/**
+ * Burn captions into video using FFmpeg subtitles filter
+ */
+export async function burnCaptions(
+    inputVideoPath: string,
+    captionFilePath: string,
+    onProgress?: (progress: number) => void
+): Promise<string> {
+    if (!fs.existsSync(captionFilePath)) {
+        console.warn(`[FFmpeg Caption] Caption file not found: ${captionFilePath}`);
+        return inputVideoPath;
+    }
+
+    const outputPath = getTempFilePath('mp4');
+    const ext = path.extname(captionFilePath).toLowerCase();
+    
+    // Normalize path for FFmpeg (escape special characters)
+    const normalizedCaptionPath = captionFilePath
+        .replace(/\\/g, '/')
+        .replace(/:/g, '\\:');
+
+    console.log(`[FFmpeg Caption] Burning captions from: ${captionFilePath}`);
+
+    return new Promise((resolve, reject) => {
+        let command = ffmpeg()
+            .input(inputVideoPath)
+            .outputOptions([
+                '-c:v libx264',
+                '-preset fast',
+                '-crf 23',
+                '-pix_fmt yuv420p',
+                '-c:a copy',
+                '-threads 4'
+            ]);
+
+        // Use subtitles filter for ASS/SRT
+        if (ext === '.ass') {
+            command = command.videoFilters([
+                `ass='${normalizedCaptionPath}'`
+            ]);
+        } else {
+            command = command.videoFilters([
+                `subtitles='${normalizedCaptionPath}'`
+            ]);
+        }
+
+        command
+            .output(outputPath)
+            .on('progress', (progress) => {
+                if (onProgress && progress.percent) {
+                    onProgress(Math.min(99, Math.floor(progress.percent)));
+                }
+            })
+            .on('end', () => {
+                console.log(`[FFmpeg Caption] Captions burned successfully`);
+                resolve(outputPath);
+            })
+            .on('error', (err) => {
+                console.error(`[FFmpeg Caption] Error: ${err.message}`);
+                // Return original if caption burn fails
+                resolve(inputVideoPath);
+            });
 
         command.run();
     });

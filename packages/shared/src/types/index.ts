@@ -162,36 +162,38 @@ export interface Overlay {
 // Video generation types
 export type VideoFlowType = 'single-image' | 'multi-image' | 'stock-video';
 
-export interface SingleImageVideoRequest {
-    flowType: 'single-image';
+// Common video request fields
+interface BaseVideoRequest {
     voiceoverUrl: string;
     voiceoverDuration: number;
-    imageUrl: string;
     overlays?: Overlay[];
+    // Caption options
+    captionsEnabled?: boolean;
+    captionStyle?: CaptionStyle;
+    script?: string; // Needed for generating captions
 }
 
-export interface MultiImageVideoRequest {
+export interface SingleImageVideoRequest extends BaseVideoRequest {
+    flowType: 'single-image';
+    imageUrl: string;
+}
+
+export interface MultiImageVideoRequest extends BaseVideoRequest {
     flowType: 'multi-image';
-    voiceoverUrl: string;
-    voiceoverDuration: number;
     images: Array<{
         imageUrl: string;
         duration: number;
     }>;
-    overlays?: Overlay[];
 }
 
-export interface StockVideoVideoRequest {
+export interface StockVideoVideoRequest extends BaseVideoRequest {
     flowType: 'stock-video';
-    voiceoverUrl: string;
-    voiceoverDuration: number;
     videos: Array<{
         videoUrl: string;
         startTime?: number;
         duration?: number;
     }>;
     loop?: boolean;
-    overlays?: Overlay[];
 }
 
 export type VideoGenerationRequest = SingleImageVideoRequest | MultiImageVideoRequest | StockVideoVideoRequest;
@@ -226,3 +228,82 @@ export interface ServiceError {
 
 // Niche types
 export type Niche = 'motivational' | 'educational' | 'entertainment' | 'news' | 'gaming' | 'lifestyle' | 'other';
+
+// Chat/Script writing types
+export type GeminiChatModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'gemini-1.5-flash' | 'gemini-1.5-pro';
+
+export interface ChatMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp?: number;
+}
+
+export interface ChatRequest {
+    messages: ChatMessage[];
+    model: GeminiChatModel;
+    systemPrompt?: string;
+    maxTokens?: number;
+}
+
+export interface ChatResponse {
+    message: ChatMessage;
+    model: GeminiChatModel;
+}
+
+export interface ScriptGenerationRequest {
+    prompt: string;
+    wordCount?: number;
+    tone?: string;
+    niche?: Niche;
+    model: GeminiChatModel;
+}
+
+export interface ScriptGenerationResponse {
+    script: string;
+    wordCount: number;
+    model: GeminiChatModel;
+}
+
+// Video quality types
+export type VideoQuality = 'draft' | 'standard' | 'high' | 'ultra';
+
+export interface VideoQualitySettings {
+    resolution: { width: number; height: number };
+    crf: number;
+    preset: string;
+    label: string;
+}
+
+// Caption types
+export interface CaptionWord {
+    word: string;
+    startTime: number;
+    endTime: number;
+}
+
+export interface CaptionSegment {
+    text: string;
+    startTime: number;
+    endTime: number;
+    words?: CaptionWord[];
+}
+
+export interface CaptionStyle {
+    fontSize: 'small' | 'medium' | 'large';
+    color: string;
+    backgroundColor?: string;
+    position: 'top' | 'center' | 'bottom';
+    fontFamily?: string;
+}
+
+export interface CaptionRequest {
+    script: string;
+    voiceoverDuration: number;
+    style?: CaptionStyle;
+}
+
+export interface CaptionResponse {
+    segments: CaptionSegment[];
+    srtContent: string;
+    assContent: string;
+}

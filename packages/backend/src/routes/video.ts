@@ -5,16 +5,30 @@ import path from 'path';
 import {
     VideoGenerationRequest,
     VideoGenerationResponse,
-    JobStatus
+    JobStatus,
+    VideoQuality,
+    VideoQualitySettings
 } from 'shared/src/types';
 import {
     generateSingleImageVideo,
     generateMultiImageVideo,
-    generateStockVideoComposition
+    generateStockVideoComposition,
+    calculateSmartVideoTiming,
+    getAudioDuration,
+    burnCaptions
 } from '../services/ffmpeg.service';
 import { createJob, updateJob, getJob } from '../utils/jobs';
 import { getTempFilePath, trackFile } from '../services/file.service';
 import { tempUpload } from '../utils/upload';
+import { generateCaptions, saveCaptionFile, DEFAULT_CAPTION_STYLES } from '../services/caption.service';
+
+// Video quality presets
+export const VIDEO_QUALITY_PRESETS: Record<VideoQuality, VideoQualitySettings> = {
+    draft: { resolution: { width: 854, height: 480 }, crf: 32, preset: 'ultrafast', label: 'Draft (480p)' },
+    standard: { resolution: { width: 1280, height: 720 }, crf: 28, preset: 'fast', label: 'Standard (720p)' },
+    high: { resolution: { width: 1920, height: 1080 }, crf: 23, preset: 'medium', label: 'High (1080p)' },
+    ultra: { resolution: { width: 1920, height: 1080 }, crf: 18, preset: 'slow', label: 'Ultra (1080p HQ)' }
+};
 
 export const videoRouter = express.Router();
 
@@ -68,6 +82,89 @@ videoRouter.get('/status/:jobId', (req, res) => {
         res.json(response);
     } catch (error: any) {
         console.error('Status check error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get video quality presets
+videoRouter.get('/quality-presets', (req, res) => {
+    res.json({ presets: VIDEO_QUALITY_PRESETS });
+});
+
+// Get caption style presets
+videoRouter.get('/caption-styles', (req, res) => {
+    res.json({ styles: DEFAULT_CAPTION_STYLES });
+});
+
+// Generate captions from script
+videoRouter.post('/generate-captions', async (req, res) => {
+    try {
+        const { script, voiceoverDuration, style } = req.body;
+        
+        if (!script) {
+            return res.status(400).json({ error: 'Script is required' });
+        }
+        
+        if (!voiceoverDuration || voiceoverDuration <= 0) {
+            return res.status(400).json({ error: 'Valid voiceover duration is required' });
+        }
+        
+        const result = await generateCaptions({
+            script,
+            voiceoverDuration,
+            style
+        });
+        
+        res.json(result);
+    } catch (error: any) {
+        console.error('Caption generation error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Calculate timing preview for stock videos
+videoRouter.post('/timing-preview', async (req, res) => {
+    try {
+        const { videos, audioDuration } = req.body;
+        
+        if (!videos || !Array.isArray(videos) || videos.length === 0) {
+            return res.status(400).json({ error: 'Videos array is required' });
+        }
+        
+        if (!audioDuration || audioDuration <= 0) {
+            return res.status(400).json({ error: 'Valid audio duration is required' });
+        }
+        
+        // For preview, we don't need actual file paths - just calculate timing
+        const videoCount = videos.length;
+        const targetDurationPerVideo = audioDuration / videoCount;
+        
+        const timingPreview = videos.map((video: any, index: number) => {
+            const isLast = index === videos.length - 1;
+            const targetDuration = isLast 
+                ? audioDuration - (targetDurationPerVideo * index)
+                : targetDurationPerVideo;
+            
+            return {
+                index,
+                videoId: video.id || `video-${index}`,
+                targetDuration: parseFloat(targetDuration.toFixed(1)),
+                startTime: parseFloat((targetDurationPerVideo * index).toFixed(1)),
+                endTime: parseFloat((targetDurationPerVideo * (index + 1)).toFixed(1)),
+                originalDuration: video.duration || null,
+                needsLoop: video.duration ? video.duration < targetDuration : null,
+                needsTrim: video.duration ? video.duration > targetDuration : null
+            };
+        });
+        
+        res.json({ 
+            timingPreview,
+            totalDuration: audioDuration,
+            videoCount,
+            averageDurationPerVideo: parseFloat(targetDurationPerVideo.toFixed(1))
+        });
+    } catch (error: any) {
+        console.error('Timing preview error:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -279,6 +376,55 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             );
         } else {
             throw new Error('Invalid flow type');
+        }
+
+        // Burn captions if enabled
+        if (request.captionsEnabled && request.script) {
+            console.log(`[Video Generation] Captions enabled, generating and burning...`);
+            updateJob(jobId, { progress: 85 });
+            
+            try {
+                // Generate captions from script
+                const captionResult = await generateCaptions({
+                    script: request.script,
+                    voiceoverDuration: request.voiceoverDuration,
+                    style: request.captionStyle
+                });
+                
+                // Save captions to file
+                const captionFilePath = await saveCaptionFile(
+                    captionResult.segments,
+                    request.captionStyle,
+                    'ass'
+                );
+                
+                console.log(`[Video Generation] Caption file saved: ${captionFilePath}`);
+                updateJob(jobId, { progress: 90 });
+                
+                // Burn captions into video
+                const captionedVideoPath = await burnCaptions(
+                    videoPath,
+                    captionFilePath,
+                    (progress) => {
+                        const scaledProgress = 90 + Math.floor(progress * 0.1);
+                        updateJob(jobId, { progress: Math.min(99, scaledProgress) });
+                    }
+                );
+                
+                // Clean up original video if captioned version is different
+                if (captionedVideoPath !== videoPath) {
+                    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+                    videoPath = captionedVideoPath;
+                }
+                
+                // Clean up caption file
+                try { fs.unlinkSync(captionFilePath); } catch { /* ignore */ }
+                
+                console.log(`[Video Generation] Captions burned successfully`);
+            } catch (captionError: any) {
+                console.error(`[Video Generation] Caption burning failed:`, captionError.message);
+                // Continue without captions rather than failing the whole job
+            }
         }
 
         trackFile(videoPath, jobId);

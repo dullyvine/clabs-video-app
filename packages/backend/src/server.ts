@@ -6,6 +6,7 @@ import { voiceoverRouter } from './routes/voiceover';
 import { imagesRouter } from './routes/images';
 import { stockVideosRouter } from './routes/stock-videos';
 import { videoRouter } from './routes/video';
+import { chatRouter } from './routes/chat';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +24,7 @@ app.use('/api/voiceover', voiceoverRouter);
 app.use('/api/images', imagesRouter);
 app.use('/api/stock-videos', stockVideosRouter);
 app.use('/api/video', videoRouter);
+app.use('/api/chat', chatRouter);
 
 // Health check
 app.get('/health', (req, res) => {

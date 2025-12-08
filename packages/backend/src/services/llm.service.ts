@@ -1,4 +1,15 @@
-import { Niche, LLMProvider, GeminiLLMModel, ScriptAnalysisResponse } from 'shared/src/types';
+import { 
+    Niche, 
+    LLMProvider, 
+    GeminiLLMModel, 
+    ScriptAnalysisResponse,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    GeminiChatModel,
+    ScriptGenerationRequest,
+    ScriptGenerationResponse
+} from 'shared/src/types';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -406,4 +417,190 @@ export async function generateStockVideoKeywords(
             keywords: sceneKeywords
         };
     });
+}
+
+// ============ CHAT / SCRIPT WRITING FUNCTIONS ============
+
+/**
+ * Chat with Gemini model for script writing or general conversation
+ */
+export async function chat(request: ChatRequest): Promise<ChatResponse> {
+    if (!genAI) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    const modelName = request.model || 'gemini-2.5-flash';
+    console.log(`[LLM Chat] Using model: ${modelName}`);
+
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    // Build conversation history
+    const history = request.messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }]
+        }));
+
+    // Get the last user message
+    const lastMessage = request.messages[request.messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') {
+        throw new Error('Last message must be from user');
+    }
+
+    // Build system instruction
+    const systemInstruction = request.systemPrompt || 
+        'You are a helpful assistant for video content creation. You help users write scripts, brainstorm ideas, and refine their content.';
+
+    try {
+        const chat = model.startChat({
+            history: history.slice(0, -1), // All messages except the last one
+            generationConfig: {
+                maxOutputTokens: request.maxTokens || 8192,
+            },
+        });
+
+        // Prepend system prompt to first message if provided
+        let prompt = lastMessage.content;
+        if (request.systemPrompt && history.length <= 1) {
+            prompt = `[System: ${systemInstruction}]\n\n${prompt}`;
+        }
+
+        const result = await chat.sendMessage(prompt);
+        const response = result.response;
+        const text = response.text();
+
+        return {
+            message: {
+                role: 'assistant',
+                content: text,
+                timestamp: Date.now()
+            },
+            model: modelName
+        };
+    } catch (error: any) {
+        console.error('[LLM Chat] Error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Generate a script based on user requirements
+ */
+export async function generateScript(request: ScriptGenerationRequest): Promise<ScriptGenerationResponse> {
+    if (!genAI) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    const modelName = request.model || 'gemini-2.5-flash';
+    console.log(`[LLM Script] Generating script with model: ${modelName}`);
+
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    const wordCountInstruction = request.wordCount 
+        ? `The script should be approximately ${request.wordCount} words.` 
+        : 'Write a comprehensive script.';
+
+    const toneInstruction = request.tone 
+        ? `The tone should be ${request.tone}.` 
+        : '';
+
+    const nicheInstruction = request.niche 
+        ? `This is for a ${request.niche} video.` 
+        : '';
+
+    const systemPrompt = `You are an expert video script writer. Write engaging, natural-sounding scripts that are perfect for voiceover narration.
+
+Guidelines:
+- Write in a conversational, engaging tone
+- Use short sentences that are easy to speak
+- Include natural pauses and transitions
+- Avoid complex jargon unless specifically requested
+- Focus on clear, impactful storytelling
+${wordCountInstruction}
+${toneInstruction}
+${nicheInstruction}
+
+Output ONLY the script text, no titles, no formatting markers, no explanations.`;
+
+    try {
+        const result = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nUser request: ${request.prompt}` }] }],
+            generationConfig: {
+                maxOutputTokens: 8192,
+            },
+        });
+
+        const script = result.response.text().trim();
+        const wordCount = script.split(/\s+/).length;
+
+        return {
+            script,
+            wordCount,
+            model: modelName
+        };
+    } catch (error: any) {
+        console.error('[LLM Script] Error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Refine an image prompt using AI - takes context from script and user's rough idea
+ */
+export async function refineImagePrompt(
+    roughPrompt: string,
+    scriptContext?: string,
+    niche?: string,
+    model: GeminiChatModel = 'gemini-2.5-flash'
+): Promise<string> {
+    if (!genAI) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    console.log(`[LLM Refine] Refining prompt with model: ${model}`);
+
+    const geminiModel = genAI.getGenerativeModel({ model });
+
+    const nicheStyle = niche ? getNicheStyleDescription(niche) : 'visually striking and professional';
+    
+    const contextSection = scriptContext 
+        ? `\n\nScript context for reference:\n"${scriptContext.substring(0, 500)}${scriptContext.length > 500 ? '...' : ''}"`
+        : '';
+
+    const systemPrompt = `You are an expert at creating detailed image generation prompts for AI image generators like DALL-E, Midjourney, and Imagen.
+
+Transform the user's rough idea into a polished, detailed image generation prompt that will produce high-quality results.
+
+Guidelines:
+- Be specific about visual elements, composition, lighting, colors, and mood
+- The style should be ${nicheStyle}
+- Include technical quality terms (4K, cinematic, professional photography, etc.)
+- Keep it under 200 words
+- Output ONLY the refined prompt, nothing else
+${contextSection}`;
+
+    try {
+        const result = await geminiModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nUser's rough idea: ${roughPrompt}` }] }],
+        });
+
+        return result.response.text().trim();
+    } catch (error: any) {
+        console.error('[LLM Refine] Error:', error);
+        throw error;
+    }
+}
+
+function getNicheStyleDescription(niche: string): string {
+    const styles: Record<string, string> = {
+        motivational: 'inspiring, uplifting, with dynamic energy and vibrant colors',
+        educational: 'clear, informative, with professional and clean aesthetics',
+        entertainment: 'dramatic, engaging, with cinematic appeal and visual impact',
+        news: 'professional, authoritative, with journalistic quality',
+        gaming: 'action-packed, with vibrant neon colors and high energy',
+        lifestyle: 'aesthetic, calming, with natural beauty and soft lighting',
+        other: 'visually striking with professional composition'
+    };
+    return styles[niche] || styles.other;
 }
