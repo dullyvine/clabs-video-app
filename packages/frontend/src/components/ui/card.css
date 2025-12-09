@@ -1,0 +1,11 @@
+.card-hover:hover {
+    cursor: pointer;
+}
+
+.card-padding {
+    padding: var(--spacing-lg);
+}
+
+.card-compact {
+    padding: var(--spacing-md);
+}

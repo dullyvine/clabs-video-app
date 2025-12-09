@@ -1,0 +1,39 @@
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+}
+
+.spinner {
+    border-radius: 50%;
+    border: 2px solid var(--glass-border);
+    border-top-color: var(--primary);
+    animation: spin 0.7s linear infinite;
+}
+
+.spinner-sm {
+    width: 1.25rem;
+    height: 1.25rem;
+    border-width: 2px;
+}
+
+.spinner-md {
+    width: 2rem;
+    height: 2rem;
+    border-width: 2px;
+}
+
+.spinner-lg {
+    width: 3rem;
+    height: 3rem;
+    border-width: 3px;
+}
+
+.loading-text {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    margin: 0;
+}

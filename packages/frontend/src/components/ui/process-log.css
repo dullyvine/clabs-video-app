@@ -1,0 +1,138 @@
+.process-log {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin: var(--spacing-md) 0;
+}
+
+.process-log-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.1);
+}
+
+.process-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.process-log-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.process-log-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 4px var(--primary);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 8px var(--primary);
+  }
+}
+
+.process-log-entries {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: var(--spacing-xs);
+}
+
+.process-log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.process-log-entry:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.process-log-entry-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.icon-pending {
+  color: var(--text-tertiary);
+}
+
+.icon-progress {
+  color: var(--primary);
+  animation: spin 1s linear infinite;
+}
+
+.icon-completed {
+  color: var(--success);
+}
+
+.icon-error {
+  color: var(--error);
+}
+
+.process-log-entry-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.process-log-entry-message {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.process-log-entry-details {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.process-log-entry-time {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+/* Status-based styling */
+.process-log-entry-pending .process-log-entry-message {
+  color: var(--text-secondary);
+}
+
+.process-log-entry-in-progress .process-log-entry-message {
+  color: var(--primary-light);
+}
+
+.process-log-entry-completed .process-log-entry-message {
+  color: var(--text-primary);
+}
+
+.process-log-entry-error .process-log-entry-message {
+  color: var(--error);
+}
