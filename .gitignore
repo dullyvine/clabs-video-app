@@ -79,9 +79,11 @@ Desktop.ini
 # -----------------------------------------------------------------------------
 # Project-Specific: Backend temp files & uploads
 # -----------------------------------------------------------------------------
-packages/backend/temp/
-packages/backend/uploads/
-packages/backend/public/temp/
+packages/backend/temp/*
+packages/backend/uploads/*
+packages/backend/public/temp/*
+!packages/backend/temp/.gitkeep
+!packages/backend/uploads/.gitkeep
 temp/
 tmp/
 

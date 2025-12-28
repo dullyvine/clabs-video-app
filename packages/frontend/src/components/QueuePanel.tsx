@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useQueue, QueuedProject } from '@/contexts/QueueContext';
 import { Button } from '@/components/ui/Button';
+import { DownloadButton } from '@/components/ui/DownloadButton';
 import './QueuePanel.css';
 
 interface QueuePanelProps {
@@ -17,42 +18,66 @@ export function QueuePanel({ onStartNew }: QueuePanelProps) {
     const queuedCount = queue.filter(p => p.status === 'queued').length;
     const failedCount = queue.filter(p => p.status === 'failed').length;
 
+    // Auto-expand when there are active jobs
+    React.useEffect(() => {
+        if (activeCount > 0 && !isExpanded) {
+            setIsExpanded(true);
+        }
+    }, [activeCount]);
+
     if (queue.length === 0) {
         return null;
     }
 
     return (
         <div className={`queue-panel ${isExpanded ? 'expanded' : 'collapsed'}`}>
+            {/* Collapsed Tab */}
             <button 
-                className="queue-panel-toggle"
+                className="queue-panel-tab"
                 onClick={() => setIsExpanded(!isExpanded)}
+                aria-label="Toggle render queue"
             >
-                <span className="queue-panel-icon">📋</span>
-                <span className="queue-panel-summary">
-                    {activeCount > 0 && <span className="queue-badge processing">{activeCount} processing</span>}
-                    {queuedCount > 0 && <span className="queue-badge queued">{queuedCount} queued</span>}
-                    {completedCount > 0 && <span className="queue-badge completed">{completedCount} done</span>}
-                    {failedCount > 0 && <span className="queue-badge failed">{failedCount} failed</span>}
-                </span>
-                <span className="queue-panel-chevron">{isExpanded ? '▼' : '▲'}</span>
+                <div className="queue-tab-indicator">
+                    {activeCount > 0 && (
+                        <span className="queue-tab-pulse" />
+                    )}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <rect x="3" y="3" width="7" height="7" rx="1" />
+                        <rect x="14" y="3" width="7" height="7" rx="1" />
+                        <rect x="3" y="14" width="7" height="7" rx="1" />
+                        <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </svg>
+                </div>
+                {!isExpanded && (
+                    <div className="queue-tab-counts">
+                        {activeCount > 0 && <span className="count active">{activeCount}</span>}
+                        {completedCount > 0 && <span className="count done">{completedCount}</span>}
+                        {(queuedCount > 0 || failedCount > 0) && (
+                            <span className="count other">{queuedCount + failedCount}</span>
+                        )}
+                    </div>
+                )}
             </button>
 
+            {/* Expanded Panel */}
             {isExpanded && (
-                <div className="queue-panel-content">
+                <div className="queue-panel-body">
                     <div className="queue-panel-header">
-                        <h3>Video Queue</h3>
-                        <div className="queue-panel-actions">
-                            {canStartNew && onStartNew && (
-                                <Button size="sm" onClick={onStartNew}>
-                                    + New Project
-                                </Button>
-                            )}
-                            {completedCount > 0 && (
-                                <Button size="sm" variant="secondary" onClick={clearCompleted}>
-                                    Clear Done
-                                </Button>
-                            )}
+                        <div className="queue-header-title">
+                            <h3>Render Queue</h3>
+                            <span className="queue-header-status">
+                                {activeCount > 0 ? `${activeCount} rendering` : 'Idle'}
+                            </span>
                         </div>
+                        <button 
+                            className="queue-close-btn"
+                            onClick={() => setIsExpanded(false)}
+                            aria-label="Close panel"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M18 6L6 18M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
 
                     <div className="queue-list">
@@ -66,7 +91,21 @@ export function QueuePanel({ onStartNew }: QueuePanelProps) {
                     </div>
 
                     <div className="queue-panel-footer">
-                        <span>Max {4} concurrent · {4 - activeCount} slots available</span>
+                        <div className="queue-footer-info">
+                            <span className="queue-slots">
+                                {4 - activeCount} of 4 slots available
+                            </span>
+                        </div>
+                        <div className="queue-footer-actions">
+                            {completedCount > 0 && (
+                                <button 
+                                    className="queue-text-btn"
+                                    onClick={clearCompleted}
+                                >
+                                    Clear completed
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -80,60 +119,80 @@ function QueueItem({ project, onRemove }: { project: QueuedProject; onRemove: ()
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     };
 
-    const getStatusIcon = (status: QueuedProject['status']) => {
-        switch (status) {
-            case 'processing': return '⏳';
-            case 'completed': return '✓';
-            case 'failed': return '✗';
-            case 'queued': return '⏸';
-            default: return '○';
-        }
-    };
-
     return (
         <div className={`queue-item ${project.status}`}>
-            <div className="queue-item-icon">{getStatusIcon(project.status)}</div>
-            <div className="queue-item-info">
-                <div className="queue-item-name">{project.name}</div>
-                <div className="queue-item-meta">
-                    <span className="queue-item-time">{formatTime(project.createdAt)}</span>
-                    {project.status === 'processing' && (
-                        <span className="queue-item-progress">{project.progress}%</span>
-                    )}
-                </div>
+            <div className="queue-item-status">
                 {project.status === 'processing' && (
-                    <div className="queue-item-progress-bar">
-                        <div 
-                            className="queue-item-progress-fill" 
-                            style={{ width: `${project.progress}%` }}
-                        />
-                    </div>
+                    <div className="status-spinner" />
+                )}
+                {project.status === 'completed' && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                )}
+                {project.status === 'failed' && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                )}
+                {project.status === 'queued' && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
                 )}
             </div>
+            
+            <div className="queue-item-content">
+                <div className="queue-item-header">
+                    <span className="queue-item-name">{project.name}</span>
+                    <span className="queue-item-time">{formatTime(project.createdAt)}</span>
+                </div>
+                
+                {project.status === 'processing' && (
+                    <div className="queue-item-progress">
+                        <div className="progress-track">
+                            <div 
+                                className="progress-fill" 
+                                style={{ width: `${project.progress}%` }}
+                            />
+                        </div>
+                        <span className="progress-text">{project.progress}%</span>
+                    </div>
+                )}
+                
+                {project.status === 'failed' && project.error && (
+                    <span className="queue-item-error">{project.error}</span>
+                )}
+            </div>
+
             <div className="queue-item-actions">
                 {project.status === 'completed' && project.videoUrl && (
-                    <a 
-                        href={project.videoUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="queue-item-download"
-                    >
-                        ⬇
-                    </a>
+                    <DownloadButton
+                        url={project.videoUrl}
+                        filename={`${project.name.replace(/[^a-z0-9]/gi, '-')}.mp4`}
+                        label=""
+                        variant="secondary"
+                        size="sm"
+                        icon={true}
+                    />
                 )}
                 {(project.status === 'completed' || project.status === 'failed' || project.status === 'queued') && (
                     <button 
                         className="queue-item-remove"
                         onClick={onRemove}
-                        title="Remove from queue"
+                        aria-label="Remove from queue"
                     >
-                        ✕
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                        </svg>
                     </button>
                 )}
             </div>
         </div>
     );
 }
+
 
 
 

@@ -30,6 +30,24 @@ export function deleteJob(jobId: string): boolean {
     return jobs.delete(jobId);
 }
 
+/**
+ * Clear all jobs from memory
+ * Returns the number of jobs cleared
+ */
+export function clearAllJobs(): number {
+    const count = jobs.size;
+    jobs.clear();
+    console.log(`[Jobs] Cleared ${count} jobs from memory`);
+    return count;
+}
+
+/**
+ * Get all jobs as an array
+ */
+export function getAllJobs(): JobStatus[] {
+    return Array.from(jobs.values());
+}
+
 // Cleanup old jobs (older than 1 hour)
 setInterval(() => {
     const oneHourAgo = Date.now() - 60 * 60 * 1000;

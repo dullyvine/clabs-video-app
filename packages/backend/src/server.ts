@@ -7,6 +7,8 @@ import { imagesRouter } from './routes/images';
 import { stockVideosRouter } from './routes/stock-videos';
 import { videoRouter } from './routes/video';
 import { chatRouter } from './routes/chat';
+import { cleanupAllTempFiles, getTempStats } from './services/file.service';
+import { clearAllJobs, getAllJobs } from './utils/jobs';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +27,45 @@ app.use('/api/images', imagesRouter);
 app.use('/api/stock-videos', stockVideosRouter);
 app.use('/api/video', videoRouter);
 app.use('/api/chat', chatRouter);
+
+// Cleanup endpoint - deletes all temp files and resets job state
+app.post('/api/cleanup', (req, res) => {
+    try {
+        const fileStats = cleanupAllTempFiles();
+        const jobsCleared = clearAllJobs();
+        
+        res.json({
+            success: true,
+            message: 'All temporary files and job data cleared',
+            filesDeleted: fileStats.tempDeleted + fileStats.uploadsDeleted,
+            tempFilesDeleted: fileStats.tempDeleted,
+            uploadsDeleted: fileStats.uploadsDeleted,
+            jobsCleared
+        });
+    } catch (error: any) {
+        console.error('[Cleanup] Error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Failed to cleanup files'
+        });
+    }
+});
+
+// Get temp storage stats
+app.get('/api/storage-stats', (req, res) => {
+    try {
+        const stats = getTempStats();
+        const jobs = getAllJobs();
+        
+        res.json({
+            ...stats,
+            activeJobs: jobs.filter(j => j.status === 'processing').length,
+            totalJobs: jobs.length
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Health check
 app.get('/health', (req, res) => {
