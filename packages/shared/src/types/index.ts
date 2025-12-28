@@ -232,6 +232,26 @@ export type Niche = 'motivational' | 'educational' | 'entertainment' | 'news' | 
 // Chat/Script writing types
 export type GeminiChatModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'gemini-1.5-flash' | 'gemini-1.5-pro';
 
+// Provider types for chat models
+export type ChatModelProvider = 'gemini' | 'openrouter';
+
+// Model definition with capabilities
+export interface ChatModelDefinition {
+    id: string;                      // Full model ID (e.g., 'gemini-2.5-flash' or 'anthropic/claude-3.5-sonnet')
+    name: string;                    // Display name
+    description: string;             // Short description
+    provider: ChatModelProvider;     // Which API to use
+    supportsSearch: boolean;         // Can use web search/grounding
+    contextLength?: number;          // Max context window
+    category?: 'fast' | 'balanced' | 'powerful';  // Model tier
+}
+
+// Response from /chat/models endpoint
+export interface ChatModelsResponse {
+    models: ChatModelDefinition[];
+    defaultModel: string;
+}
+
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
@@ -240,14 +260,16 @@ export interface ChatMessage {
 
 export interface ChatRequest {
     messages: ChatMessage[];
-    model: GeminiChatModel;
+    model: string;  // Now accepts any model ID string
     systemPrompt?: string;
     maxTokens?: number;
+    useSearch?: boolean;  // Enable web search if model supports it
 }
 
 export interface ChatResponse {
     message: ChatMessage;
-    model: GeminiChatModel;
+    model: string;  // Now returns the actual model ID used
+    searchUsed?: boolean;  // Whether search was used for this response
 }
 
 export interface ScriptGenerationRequest {
@@ -255,13 +277,38 @@ export interface ScriptGenerationRequest {
     wordCount?: number;
     tone?: string;
     niche?: Niche;
-    model: GeminiChatModel;
+    model: string;  // Now accepts any model ID string
+    useSearch?: boolean;  // Enable web search if model supports it
 }
 
 export interface ScriptGenerationResponse {
     script: string;
     wordCount: number;
-    model: GeminiChatModel;
+    model: string;  // Now returns the actual model ID used
+    searchUsed?: boolean;
+}
+
+// Enhanced Chat types for intelligent script writing
+export type ChatIntent = 'research' | 'write' | 'refine' | 'general';
+
+export interface SmartChatRequest {
+    messages: ChatMessage[];
+    model: string;  // Now accepts any model ID string
+    niche?: Niche;
+    targetWordCount?: number;  // Can be overridden by prompt
+    systemContext?: string;    // Additional context about the project
+    useSearch?: boolean;       // Enable web search if model supports it
+}
+
+export interface SmartChatResponse {
+    message: ChatMessage;
+    model: string;  // Now returns the actual model ID used
+    detectedIntent: ChatIntent;
+    extractedWordCount?: number;    // If user specified word count in prompt
+    isScript: boolean;              // True if response is a complete script
+    scriptWordCount?: number;       // Word count if isScript is true
+    suggestedActions?: string[];    // e.g., ["Use as Script", "Refine Further", "Make Shorter"]
+    searchUsed?: boolean;           // Whether search was used for this response
 }
 
 // Video quality types

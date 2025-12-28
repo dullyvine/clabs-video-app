@@ -1,33 +1,76 @@
+# Environment Variables Setup
+Copy to `packages/backend/.env`
+
+---
+
+## ✅ REQUIRED (Core Functionality)
+
+```env
+# Server
 PORT=3001
 NODE_ENV=development
 
-# Gemini API (LLM & Image Generation)
+# Gemini API - Powers: Chat, Script Writing, Search Grounding, Image Generation
+# Get key: https://aistudio.google.com/apikey
+GEMINI_API_KEY=your_gemini_key_here
+```
 
-GEMINI_API_KEY=
+---
 
-# Gen AI Pro (Max) API (TTS)
+## ✅ CONFIGURED (Your Current Setup)
 
-GEN_AI_PRO_API_KEY=
+```env
+# Gen AI Pro TTS - ElevenLabs-compatible voice synthesis
+# Get key: https://genaipro.vn
+GEN_AI_PRO_API_KEY=your_genaipro_key_here
 GEN_AI_PRO_BASE_URL=https://genaipro.vn/api/v1
 
-# ai33.pro API (TTS - ElevenLabs Compatible)
+# Pexels - Free stock video library
+# Get key: https://www.pexels.com/api/
+PEXELS_API_KEY=your_pexels_key_here
+```
 
+---
+
+## ⚪ OPTIONAL (Add for More Features)
+
+```env
+# OpenRouter - Access Claude, GPT-4o, Llama, DeepSeek + 100 more models
+# Get key: https://openrouter.ai/keys
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+DEFAULT_LLM_MODEL=anthropic/claude-3.5-sonnet
+
+# AI33 TTS - Alternative ElevenLabs-compatible TTS
+# Get key: https://ai33.pro
 AI33_API_KEY=
 AI33_BASE_URL=https://api.ai33.pro/v1
 
-# OpenRouter API (Image Generation)
-
-OPENROUTER_API_KEY=
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-
-# File Management
-
-CLEANUP_INTERVAL_MS=600000
-FILE_MAX_AGE_MS=3600000
-
-# Stock Video APIs
-
+# Storyblocks - Premium stock videos (paid)
 STORYBLOCKS_PUBLIC_KEY=
 STORYBLOCKS_SECRET_KEY=
-PEXELS_API_KEY=
-# Required for live stock video search (Pexels). Without this key the app falls back to mock results.
+```
+
+---
+
+## 🔧 SYSTEM (Usually keep defaults)
+
+```env
+# File cleanup settings (milliseconds)
+CLEANUP_INTERVAL_MS=600000
+FILE_MAX_AGE_MS=3600000
+```
+
+---
+
+## Quick Reference
+
+| Feature | Required Key | Status with Your Setup |
+|---------|--------------|------------------------|
+| Chat & Script Writing | GEMINI_API_KEY | ✅ Working |
+| Web Search Grounding | GEMINI_API_KEY | ✅ Working |
+| Image Generation | GEMINI_API_KEY | ✅ Working |
+| Text-to-Speech | GEN_AI_PRO_API_KEY | ✅ Working |
+| Stock Videos | PEXELS_API_KEY | ✅ Working |
+| OpenRouter Models | OPENROUTER_API_KEY | ⚪ Not configured |
+| AI33 TTS | AI33_API_KEY | ⚪ Not configured |

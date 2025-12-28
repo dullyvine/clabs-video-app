@@ -288,7 +288,9 @@
 }
 
 .form-label {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 6px;
     font-size: 0.8125rem;
     font-weight: 500;
@@ -298,6 +300,15 @@
 .label-hint {
     color: var(--text-tertiary);
     font-weight: 400;
+}
+
+.label-stats {
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
 }
 
 .form-hint {

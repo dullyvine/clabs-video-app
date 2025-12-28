@@ -12,7 +12,8 @@ import {
     StockVideoAsset,
     StockVideoOrientation,
     VideoQuality,
-    CaptionStyle
+    CaptionStyle,
+    ChatMessage
 } from 'shared/src/types';
 import { api } from '@/lib/api';
 
@@ -27,6 +28,10 @@ export type SelectedStockVideo = StockVideoAsset & { slotId?: string };
 interface AppState {
     // Step tracking
     currentStep: number;
+
+    // Script Chat
+    chatHistory: ChatMessage[];
+    scriptWordCount: number; // Target word count for script generation
 
     // Voiceover
     script: string;
@@ -85,6 +90,8 @@ interface AppContextType extends AppState {
 
 const initialState: AppState = {
     currentStep: 0,
+    chatHistory: [],
+    scriptWordCount: 300,
     script: '',
     voiceService: null,
     voiceId: null,

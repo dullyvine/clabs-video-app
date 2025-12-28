@@ -5,7 +5,7 @@
     border-radius: var(--radius-md);
     border: 1px solid var(--glass-border);
     overflow: hidden;
-    max-height: 500px;
+    max-height: 600px;
 }
 
 .script-chat-header {
@@ -17,6 +17,83 @@
     border-bottom: 1px solid var(--glass-border);
     gap: var(--spacing-sm);
     flex-wrap: wrap;
+}
+
+.script-chat-title-area {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.script-chat-icon {
+    font-size: 1.25rem;
+}
+
+.script-chat-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--text-primary);
+}
+
+.script-chat-intent-badge {
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    border-radius: var(--radius-xs);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.script-chat-intent-badge.research {
+    background: rgba(59, 130, 246, 0.15);
+    color: #3b82f6;
+}
+
+.script-chat-intent-badge.write {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+.script-chat-intent-badge.refine {
+    background: rgba(168, 85, 247, 0.15);
+    color: #a855f7;
+}
+
+.script-chat-intent-badge.general {
+    background: rgba(107, 114, 128, 0.15);
+    color: #6b7280;
+}
+
+.script-chat-search-badge {
+    padding: 2px 8px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    border-radius: var(--radius-xs);
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+}
+
+.script-chat-search-toggle {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.script-chat-search-toggle:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.script-chat-search-toggle.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
 }
 
 .script-chat-tabs {
@@ -62,17 +139,20 @@
 }
 
 .script-chat-clear {
-    padding: 4px 8px;
+    padding: 4px 10px;
     background: transparent;
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-xs);
     cursor: pointer;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
     transition: all var(--transition-fast);
 }
 
 .script-chat-clear:hover {
     background: var(--bg-tertiary);
+    color: var(--text-primary);
 }
 
 .script-chat-settings {
@@ -139,6 +219,44 @@
 .script-chat-empty p {
     margin: 0;
     font-size: 0.9375rem;
+}
+
+.script-chat-empty h3 {
+    margin: 0 0 var(--spacing-xs) 0;
+    font-size: 1.125rem;
+    color: var(--text-primary);
+}
+
+.script-chat-examples {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+    text-align: left;
+    width: 100%;
+    max-width: 400px;
+}
+
+.script-chat-example-group {
+    padding: var(--spacing-sm);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--glass-border);
+}
+
+.script-chat-example-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.script-chat-example-group p {
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    font-style: italic;
+    margin: 0;
 }
 
 .script-chat-suggestions {
@@ -307,6 +425,137 @@
 .script-chat-input-area button {
     align-self: flex-end;
     min-width: 90px;
+}
+
+/* Message footer with actions and word count */
+.script-chat-message-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--glass-border);
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+}
+
+/* Quick Actions Bar */
+.script-chat-quick-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--glass-border);
+    flex-wrap: wrap;
+}
+
+.script-chat-quick-action-btn {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.script-chat-quick-action-btn:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+/* Script Preview Modal */
+.script-preview-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: var(--spacing-md);
+}
+
+.script-preview-modal {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--glass-border);
+    max-width: 700px;
+    width: 100%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.script-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.script-preview-header h3 {
+    margin: 0;
+    font-size: 1.125rem;
+    color: var(--text-primary);
+}
+
+.script-preview-close {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color var(--transition-fast);
+}
+
+.script-preview-close:hover {
+    color: var(--text-primary);
+}
+
+.script-preview-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.script-preview-stat {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.script-preview-stat strong {
+    color: var(--text-primary);
+}
+
+.script-preview-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-md);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.script-preview-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    border-top: 1px solid var(--glass-border);
+    background: var(--bg-tertiary);
 }
 
 

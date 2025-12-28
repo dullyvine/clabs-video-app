@@ -15,7 +15,9 @@ import {
     ChatResponse,
     ScriptGenerationRequest,
     ScriptGenerationResponse,
-    GeminiChatModel
+    SmartChatRequest,
+    SmartChatResponse,
+    ChatModelsResponse
 } from 'shared/src/types';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -144,7 +146,7 @@ export const api = {
     },
 
     // Chat / Script Writing
-    listChatModels: (): Promise<{ models: Array<{ id: GeminiChatModel; name: string; description: string }> }> =>
+    listChatModels: (): Promise<ChatModelsResponse> =>
         fetchAPI('/chat/models'),
 
     sendChatMessage: (data: ChatRequest): Promise<ChatResponse> =>
@@ -159,11 +161,18 @@ export const api = {
             body: JSON.stringify(data),
         }),
 
+    // Smart chat with intent detection and word count extraction
+    smartChat: (data: SmartChatRequest): Promise<SmartChatResponse> =>
+        fetchAPI('/chat/smart-message', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
     refineImagePrompt: (data: {
         prompt: string;
         scriptContext?: string;
         niche?: string;
-        model?: GeminiChatModel;
+        model?: string;
     }): Promise<{ refinedPrompt: string }> =>
         fetchAPI('/chat/refine-prompt', {
             method: 'POST',

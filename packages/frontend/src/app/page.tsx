@@ -65,7 +65,7 @@ export default function Home() {
       <QueuePanel onStartNew={handleStartNewProject} />
       <header className="app-header">
         <div className="app-header-content">
-          <h1><span className="app-logo">🎬</span> Video Generator</h1>
+          <h1>Video Generator</h1>
           <p className="subtitle">Transform scripts into YouTube videos with AI-powered voiceovers and visuals</p>
         </div>
         <div className="app-header-actions">
@@ -74,7 +74,6 @@ export default function Home() {
             className="clear-project-btn"
             title="Start a new project (keeps server files)"
           >
-            <span>📝</span>
             <span className="clear-project-text">New Project</span>
           </button>
           <button
@@ -83,7 +82,6 @@ export default function Home() {
             title="Clear all temporary data (browser storage + server files)"
             disabled={isClearing}
           >
-            <span>{isClearing ? '⏳' : '🧹'}</span>
             <span className="clear-project-text">{isClearing ? 'Clearing...' : 'Clear All Data'}</span>
           </button>
         </div>
@@ -192,7 +190,7 @@ function VoicePreviewButton({ voiceId, voiceService, geminiModel }: { voiceId: s
         variant="secondary"
         style={{ minWidth: '100px' }}
       >
-        {loading ? '...' : '🔊 Preview'}
+        {loading ? '...' : 'Preview'}
       </Button>
       {previewUrl && (
         <audio 
@@ -220,11 +218,29 @@ function ScriptVoiceoverStep() {
   });
   const [showAIWriter, setShowAIWriter] = useState(false);
   const processLog = useProcessLog();
+  const scriptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  const handleUseAIScript = (script: string) => {
+  // Handle script from AI chat - with smooth transition
+  const handleUseAIScript = (script: string, wordCount: number) => {
     app.updateState({ script });
     setShowAIWriter(false);
-    toastSuccess('Script loaded! You can now generate a voiceover.');
+    toastSuccess(`Script loaded! (${wordCount} words) Now select a voice to generate voiceover.`);
+    
+    // Auto-scroll to script textarea after a short delay
+    setTimeout(() => {
+      scriptTextareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      scriptTextareaRef.current?.focus();
+    }, 100);
+  };
+
+  // Handle chat history changes - persist to app state
+  const handleChatHistoryChange = (messages: any[]) => {
+    app.updateState({ chatHistory: messages });
+  };
+
+  // Handle word count changes from chat
+  const handleWordCountChange = (count: number) => {
+    app.updateState({ scriptWordCount: count });
   };
 
   React.useEffect(() => {
@@ -326,7 +342,7 @@ function ScriptVoiceoverStep() {
           onClick={() => setShowAIWriter(!showAIWriter)}
           size="sm"
         >
-          {showAIWriter ? '✕ Close AI Writer' : '✨ Write Script with AI'}
+          {showAIWriter ? 'Close AI Writer' : 'Write Script with AI'}
         </Button>
         
         {showAIWriter && (
@@ -335,14 +351,26 @@ function ScriptVoiceoverStep() {
               onUseAsScript={handleUseAIScript}
               initialScript={app.script}
               niche={app.selectedNiche}
+              chatHistory={app.chatHistory}
+              onChatHistoryChange={handleChatHistoryChange}
+              targetWordCount={app.scriptWordCount}
+              onWordCountChange={handleWordCountChange}
             />
           </div>
         )}
       </div>
 
       <div className="form-group">
-        <label className="form-label">Your Script</label>
+        <label className="form-label">
+          Your Script
+          {app.script && (
+            <span className="label-stats">
+              {app.script.split(/\s+/).filter(w => w).length} words · ~{Math.round(app.script.split(/\s+/).filter(w => w).length / 150 * 60)}s
+            </span>
+          )}
+        </label>
         <textarea
+          ref={scriptTextareaRef}
           placeholder="Enter your video script here or use AI to generate one..."
           value={app.script}
           onChange={(e) => app.updateState({ script: e.target.value })}
@@ -459,7 +487,7 @@ function ScriptVoiceoverStep() {
         <div className="audio-player">
           <div className="audio-player-header">
             <span className="audio-player-title">
-              <span className="icon">✓</span> Voiceover Ready
+              Voiceover Ready
             </span>
             <DownloadButton 
               url={app.voiceoverUrl}
@@ -508,13 +536,13 @@ function NicheSelectionStep() {
   };
 
   const niches = [
-    { id: 'motivational', label: 'Motivational', icon: '💪' },
-    { id: 'educational', label: 'Educational', icon: '📚' },
-    { id: 'entertainment', label: 'Entertainment', icon: '🎭' },
-    { id: 'news', label: 'News', icon: '📰' },
-    { id: 'gaming', label: 'Gaming', icon: '🎮' },
-    { id: 'lifestyle', label: 'Lifestyle', icon: '✨' },
-    { id: 'other', label: 'Other', icon: '📁' },
+    { id: 'motivational', label: 'Motivational' },
+    { id: 'educational', label: 'Educational' },
+    { id: 'entertainment', label: 'Entertainment' },
+    { id: 'news', label: 'News' },
+    { id: 'gaming', label: 'Gaming' },
+    { id: 'lifestyle', label: 'Lifestyle' },
+    { id: 'other', label: 'Other' },
   ];
 
   return (
@@ -532,12 +560,12 @@ function NicheSelectionStep() {
           Choose a content category to optimize AI-generated visuals for your video style
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--spacing-sm)' }}>
-          {niches.map(({ id, label, icon }) => (
+          {niches.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => handleSelectNiche(id)}
               style={{
-                padding: 'var(--spacing-sm)',
+                padding: 'var(--spacing-md)',
                 background: app.selectedNiche === id ? 'var(--primary)' : 'var(--bg-tertiary)',
                 border: `1px solid ${app.selectedNiche === id ? 'var(--primary)' : 'var(--glass-border)'}`,
                 borderRadius: 'var(--radius-sm)',
@@ -545,13 +573,11 @@ function NicheSelectionStep() {
                 cursor: 'pointer',
                 transition: 'all var(--transition-fast)',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
               }}
             >
-              <span style={{ fontSize: '1.5rem' }}>{icon}</span>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>{label}</span>
+              <span style={{ fontSize: '0.875rem', fontWeight: '500' }}>{label}</span>
             </button>
           ))}
         </div>
@@ -571,19 +597,16 @@ function NicheSelectionStep() {
             <FlowCard
               title="Single Image"
               description="Generate one AI image that loops throughout the video"
-              icon="🖼️"
               onClick={() => handleSelectFlow('single-image')}
             />
             <FlowCard
               title="Multiple Images"
               description="Generate multiple AI images for dynamic scene transitions"
-              icon="🎨"
               onClick={() => handleSelectFlow('multi-image')}
             />
             <FlowCard
               title="Stock Videos"
               description="Use professional stock footage from Pexels"
-              icon="🎥"
               onClick={() => handleSelectFlow('stock-video')}
             />
           </div>
@@ -599,10 +622,9 @@ function NicheSelectionStep() {
   );
 }
 
-function FlowCard({ title, description, icon, onClick }: any) {
+function FlowCard({ title, description, onClick }: any) {
   return (
     <Card className="flow-card card-padding" onClick={onClick}>
-      <div className="flow-icon">{icon}</div>
       <h3 style={{ marginBottom: '6px', fontSize: '1rem' }}>{title}</h3>
       <p style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem', margin: 0 }}>{description}</p>
     </Card>
@@ -942,7 +964,7 @@ function AssetGenerationStep() {
           onClick={() => setShowBrainDump(!showBrainDump)}
           size="sm"
         >
-          {showBrainDump ? '✕ Close' : '🧠 Brain Dump → AI Prompt'}
+          {showBrainDump ? 'Close' : 'Brain Dump to AI Prompt'}
         </Button>
         
         {showBrainDump && (
@@ -964,7 +986,7 @@ function AssetGenerationStep() {
               style={{ width: '100%', fontSize: '0.8125rem', marginBottom: 'var(--spacing-sm)' }}
             />
             <Button onClick={handleBrainDumpToPrompt} isLoading={loading} size="sm">
-              ✨ Generate Prompt
+              Generate Prompt
             </Button>
           </div>
         )}
@@ -1009,7 +1031,7 @@ function AssetGenerationStep() {
                       opacity: refiningIndex === i ? 0.7 : 1
                     }}
                   >
-                    {refiningIndex === i ? '...' : '✨ Refine'}
+                    {refiningIndex === i ? '...' : 'Refine'}
                   </button>
                 </div>
                 <textarea
@@ -1037,7 +1059,7 @@ function AssetGenerationStep() {
         <div className="asset-preview-section">
           <div className="asset-preview-header">
             <span className="asset-preview-title">
-              <span style={{ color: 'var(--success)' }}>✓</span> Generated Images ({sortedImages.length})
+              Generated Images ({sortedImages.length})
             </span>
             <div className="asset-preview-actions">
               <DownloadAllButton 
@@ -1083,7 +1105,7 @@ function AssetGenerationStep() {
                           color: 'var(--text-primary)'
                         }}
                       >
-                        {regeneratingIndex === promptIndex ? '...' : '🔄'}
+                        {regeneratingIndex === promptIndex ? '...' : 'Redo'}
                       </button>
                     </div>
                   </div>
@@ -1362,7 +1384,7 @@ function StockVideoSelectionStep() {
                 marginBottom: 'var(--spacing-xs)'
               }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                  ⏱️ Smart Timing Preview
+                  Smart Timing Preview
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                   Total: {timingPreview.totalDuration.toFixed(1)}s · ~{timingPreview.averageDurationPerVideo.toFixed(1)}s per video
@@ -1396,9 +1418,9 @@ function StockVideoSelectionStep() {
                 fontSize: '0.625rem',
                 color: 'var(--text-tertiary)'
               }}>
-                <span>🟢 Fits exactly</span>
-                <span>🟡 Will loop</span>
-                <span>🔵 Will trim</span>
+                <span><span style={{ color: 'var(--success)' }}>•</span> Fits exactly</span>
+                <span><span style={{ color: 'var(--warning)' }}>•</span> Will loop</span>
+                <span><span style={{ color: 'var(--primary)' }}>•</span> Will trim</span>
               </div>
             </div>
           )}
@@ -1460,14 +1482,15 @@ function StockVideoSelectionStep() {
                     className="stock-slot-swap-btn"
                     onClick={() => openSwapModal(slot.id)}
                   >
-                    🔄 Swap
+                    Swap
                   </button>
                   <DownloadButton
                     url={slot.video.url}
                     filename={`stock-video-${String(index + 1).padStart(2, '0')}.mp4`}
-                    label="⬇"
+                    label=""
                     variant="secondary"
                     size="sm"
+                    icon={true}
                   />
                 </div>
               </div>
@@ -1789,7 +1812,7 @@ function VideoGenerationStep() {
       {/* Video Settings */}
       <details className="video-settings-panel" open>
         <summary className="video-settings-header">
-          <span className="video-settings-icon">⚙️</span>
+
           <span>Video Settings</span>
           <span className="video-settings-summary">
             {app.videoQuality} quality{app.captionsEnabled ? ' · captions' : ''}
@@ -1894,7 +1917,7 @@ function VideoGenerationStep() {
           <div className="audio-player" style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div className="audio-player-header">
               <span className="audio-player-title">
-                <span className="icon">🎙️</span> Voiceover
+                Voiceover
               </span>
               <DownloadButton 
                 url={app.voiceoverUrl}
@@ -1912,7 +1935,7 @@ function VideoGenerationStep() {
         {app.generatedImages.length > 0 && (
           <div style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>📸 Images ({app.generatedImages.length})</span>
+              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Images ({app.generatedImages.length})</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.generatedImages.slice(0, 6).map((img: any, i) => (
@@ -1933,7 +1956,7 @@ function VideoGenerationStep() {
         {app.selectedFlow === 'stock-video' && app.selectedVideos.length > 0 && (
           <div style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>🎥 Stock Videos ({app.selectedVideos.length})</span>
+              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Stock Videos ({app.selectedVideos.length})</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.selectedVideos.slice(0, 6).map((video, i) => (
@@ -1981,7 +2004,7 @@ function VideoGenerationStep() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-lg)' }}>
             <Button onClick={handleStartNewProject} variant="primary">
-              🎬 Start New Project
+              Start New Project
             </Button>
           </div>
         </div>
@@ -1989,7 +2012,7 @@ function VideoGenerationStep() {
         <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ padding: 'var(--spacing-md)', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '0.9375rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-              <span style={{ color: 'var(--success)' }}>✓</span> Video Ready
+              Video Ready
             </span>
             <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
               <DownloadButton 
@@ -2016,7 +2039,7 @@ function VideoGenerationStep() {
                 processLog.clearLog();
               }}
             >
-              🔄 Regenerate Video
+              Regenerate Video
             </Button>
             <div style={{ flex: 1 }} />
             <Button onClick={handleStartNewProject}>
@@ -2027,7 +2050,7 @@ function VideoGenerationStep() {
       ) : submittedToQueue && currentQueuedProject?.status === 'failed' ? (
         <div style={{ padding: 'var(--spacing-lg)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '2rem' }}>❌</span>
+
             <h3 style={{ marginTop: 'var(--spacing-sm)', color: 'var(--error)' }}>Video Generation Failed</h3>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
               {currentQueuedProject.error || 'An unknown error occurred'}
@@ -2073,7 +2096,7 @@ function VideoGenerationStep() {
                       marginBottom: 'var(--spacing-sm)'
                     }}>
                       <p style={{ fontSize: '0.8125rem', marginBottom: 'var(--spacing-xs)' }}>
-                        💡 Suggested: <strong>{suggestedDuration}s</strong> per image to evenly distribute across {Math.round(voiceoverDuration)}s audio
+                        Suggested: <strong>{suggestedDuration}s</strong> per image to evenly distribute across {Math.round(voiceoverDuration)}s audio
                       </p>
                       <Button
                         variant="secondary"
@@ -2100,7 +2123,7 @@ function VideoGenerationStep() {
                       
                       {!coversFullAudio && (
                         <p style={{ color: 'var(--warning)', marginTop: '4px' }}>
-                          ⚠️ Last image will extend to cover remaining {Math.round(voiceoverDuration - totalImagesDuration)}s
+                          Note: Last image will extend to cover remaining {Math.round(voiceoverDuration - totalImagesDuration)}s
                         </p>
                       )}
                     </div>
