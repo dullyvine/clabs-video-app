@@ -158,17 +158,20 @@
 /* Time Ruler */
 .timeline-ruler {
   position: relative;
-  height: 24px;
-  margin-bottom: 6px;
+  height: 20px;
+  margin-bottom: 4px;
   margin-left: 60px; /* Align with tracks */
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.02) 100%);
+  border-radius: var(--radius-sm);
 }
 
 .timeline-ruler-mark {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   color: var(--text-tertiary);
   font-family: 'Monaco', 'Consolas', monospace;
+  letter-spacing: -0.5px;
 }
 
 .timeline-ruler-mark span {
@@ -179,10 +182,10 @@
   content: '';
   position: absolute;
   left: 50%;
-  top: 16px;
+  top: 14px;
   width: 1px;
-  height: 8px;
-  background: var(--glass-border);
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* Combined Timeline Container */
@@ -738,21 +741,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) 0;
-  margin-top: var(--spacing-sm);
-  border-top: 1px dashed var(--glass-border);
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) 0;
+  margin-top: var(--spacing-xs);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .timeline-actions-group {
   display: flex;
-  gap: var(--spacing-xs);
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .timeline-actions-group button {
-  font-size: 0.75rem !important;
-  padding: 6px 12px !important;
+  font-size: 0.6875rem !important;
+  padding: 5px 10px !important;
+  border-radius: var(--radius-sm) !important;
 }
 
 .timeline-actions-info {
@@ -762,14 +766,120 @@
 }
 
 .timeline-total-info {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--text-secondary);
   font-family: 'Monaco', 'Consolas', monospace;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
 }
 
 .timeline-warning {
   color: var(--warning);
   font-weight: 500;
+}
+
+/* Timeline info states */
+.timeline-total-info.overflow-warning {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.timeline-total-info.underflow-info {
+  color: var(--text-secondary);
+}
+
+.timeline-total-info.perfect-fit {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+/* Audio End Boundary Marker */
+.timeline-audio-end-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  margin-left: -1px;
+  z-index: 50;
+  pointer-events: none;
+}
+
+.timeline-audio-end-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  background: linear-gradient(180deg, 
+    transparent 0%,
+    rgba(var(--primary-rgb), 0.8) 10%,
+    var(--primary) 50%,
+    rgba(var(--primary-rgb), 0.8) 90%,
+    transparent 100%
+  );
+  box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.6);
+}
+
+.timeline-audio-end-label {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  background: var(--primary);
+  color: white;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Clip states - snapped to end */
+.timeline-clip.snapped-to-end {
+  border-right: 3px solid var(--primary);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.5), 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-clip.snapped-to-end::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  background: var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(var(--primary-rgb), 0.8);
+}
+
+/* Clip overflow indicator - clips that exceed audio duration */
+.timeline-clip.overflowing {
+  border: 2px dashed #f59e0b;
+  background: linear-gradient(180deg, 
+    rgba(245, 158, 11, 0.15) 0%, 
+    #353535 20%, 
+    #2a2a2a 100%
+  );
+}
+
+.timeline-clip.overflowing::before {
+  content: '⚠';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.625rem;
+  color: #f59e0b;
+  z-index: 10;
+}
+
+.timeline-clip.overflowing .timeline-clip-duration {
+  color: #f59e0b;
 }
 
 /* Quick Tips */
@@ -778,37 +888,40 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-sm);
-  padding: var(--spacing-xs) 0;
-  margin-top: var(--spacing-xs);
-  font-size: 0.6875rem;
+  padding: 6px 0;
+  margin-top: 4px;
+  font-size: 0.625rem;
   color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
 }
 
 .timeline-tip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .timeline-tip kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   font-family: inherit;
-  font-size: 0.625rem;
+  font-size: 0.5625rem;
   font-weight: 600;
-  color: var(--text-primary);
-  background: var(--bg-primary);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--glass-border);
   border-radius: 3px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
 }
 
 .timeline-tip-separator {
-  opacity: 0.5;
+  opacity: 0.3;
+  font-size: 0.5rem;
 }
 
 /* Remove the resize hint - cleaner look */

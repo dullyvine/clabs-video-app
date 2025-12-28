@@ -464,13 +464,6 @@ export function TimelineEditor({
         return;
       }
 
-      // Ctrl/Cmd + L - snap last clip to audio length
-      if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
-        e.preventDefault();
-        snapToAudioLength();
-        return;
-      }
-
       // Ctrl/Cmd + S - split at playhead
       if ((e.ctrlKey || e.metaKey) && e.key === 's' && !e.shiftKey) {
         // Don't prevent default for Ctrl+S as it's browser save
@@ -529,7 +522,7 @@ export function TimelineEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedSlotId, slots, togglePlayback, duplicateSlot, deleteSlot, distributeEvenly, snapToAudioLength, selectPreviousClip, selectNextClip, handleDurationChange, totalDuration]);
+  }, [selectedSlotId, slots, togglePlayback, duplicateSlot, deleteSlot, distributeEvenly, selectPreviousClip, selectNextClip, handleDurationChange, totalDuration]);
 
   const selectedSlot = selectedSlotId ? slots.find(s => s.id === selectedSlotId) : null;
 
@@ -673,10 +666,16 @@ export function TimelineEditor({
                 const isDragging = draggingSlot?.id === slot.id;
                 const isDropTarget = dropTargetIndex === index;
                 
+                // Check if clip extends past audio duration
+                const clipEndTime = slot.startTime + slot.duration;
+                const isOverflowing = clipEndTime > totalDuration;
+                const isLastClip = index === slotsWithTiming.length - 1;
+                const isSnappedToEnd = isLastClip && Math.abs(clipEndTime - totalDuration) < 0.2;
+                
                 return (
                   <div
                     key={slot.id}
-                    className={`timeline-clip ${isSelected ? 'selected' : ''} ${isResizing ? 'resizing' : ''} ${isDragging ? 'dragging' : ''} ${isDropTarget ? 'drop-target' : ''}`}
+                    className={`timeline-clip ${isSelected ? 'selected' : ''} ${isResizing ? 'resizing' : ''} ${isDragging ? 'dragging' : ''} ${isDropTarget ? 'drop-target' : ''} ${isOverflowing ? 'overflowing' : ''} ${isSnappedToEnd ? 'snapped-to-end' : ''}`}
                     style={{
                       width: `${widthPercent}%`,
                       left: `${leftPercent}%`,
@@ -751,6 +750,16 @@ export function TimelineEditor({
               </div>
             </div>
             
+            {/* Audio End Boundary Marker - Visual snap edge */}
+            <div 
+              className="timeline-audio-end-marker"
+              style={{ left: '100%' }}
+              title="Audio ends here - clips snap to this edge"
+            >
+              <div className="timeline-audio-end-line" />
+              <div className="timeline-audio-end-label">Audio End</div>
+            </div>
+            
             {/* Unified Playhead - spans both tracks */}
             <div 
               className={`timeline-playhead ${isDraggingPlayhead ? 'dragging' : ''}`}
@@ -779,7 +788,7 @@ export function TimelineEditor({
               title="Split clip at playhead position"
               disabled={!slotsWithTiming[currentSlotIndex]}
             >
-              ✂️ Split at Playhead
+              ✂️ Split
             </Button>
             <Button 
               variant="secondary" 
@@ -796,22 +805,17 @@ export function TimelineEditor({
               title="Even out remaining clips from selected clip"
               disabled={!selectedSlotId}
             >
-              ➡️ Even Remaining
-            </Button>
-            <Button 
-              variant="primary" 
-              size="sm" 
-              onClick={snapToAudioLength}
-              title="Snap last clip to fill remaining audio duration (Ctrl+L)"
-            >
-              🔒 Snap to Audio
+              ➡️ Even Rest
             </Button>
           </div>
           <div className="timeline-actions-info">
-            <span className="timeline-total-info">
-              Total: {formatTime(totalSlotsDuration)} / {formatTime(totalDuration)}
-              {totalSlotsDuration < totalDuration && (
-                <span className="timeline-warning"> (Last clip extends)</span>
+            <span className={`timeline-total-info ${totalSlotsDuration > totalDuration ? 'overflow-warning' : totalSlotsDuration < totalDuration ? 'underflow-info' : 'perfect-fit'}`}>
+              {totalSlotsDuration > totalDuration ? (
+                <>⚠️ Clips: {formatTime(totalSlotsDuration)} exceed audio ({formatTime(totalDuration)})</>
+              ) : totalSlotsDuration < totalDuration ? (
+                <>📏 Clips: {formatTime(totalSlotsDuration)} / Audio: {formatTime(totalDuration)}</>
+              ) : (
+                <>✓ Perfect fit: {formatTime(totalDuration)}</>
               )}
             </span>
           </div>
@@ -819,13 +823,13 @@ export function TimelineEditor({
 
         {/* Quick Tips & Keyboard Shortcuts */}
         <div className="timeline-tips">
-          <span className="timeline-tip">⌨️ <kbd>Space</kbd> Play/Pause</span>
+          <span className="timeline-tip"><kbd>Space</kbd> Play</span>
           <span className="timeline-tip-separator">•</span>
-          <span className="timeline-tip"><kbd>←</kbd><kbd>→</kbd> Navigate clips</span>
+          <span className="timeline-tip"><kbd>←</kbd><kbd>→</kbd> Navigate</span>
           <span className="timeline-tip-separator">•</span>
           <span className="timeline-tip"><kbd>Del</kbd> Delete</span>
           <span className="timeline-tip-separator">•</span>
-          <span className="timeline-tip"><kbd>[</kbd><kbd>]</kbd> Adjust duration</span>
+          <span className="timeline-tip"><kbd>[</kbd><kbd>]</kbd> Duration</span>
           <span className="timeline-tip-separator">•</span>
           <span className="timeline-tip"><kbd>Ctrl+D</kbd> Duplicate</span>
         </div>
