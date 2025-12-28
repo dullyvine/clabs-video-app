@@ -22,10 +22,10 @@ export type ImageService = 'openrouter' | 'gemini';
 export type ImageModel =
     // OpenRouter models (dynamically fetched)
     | 'flux-pro' | 'flux-dev' | 'flux-schnell' | 'dall-e-3'
-    // Gemini Nano Banana models (uses generateContent)
-    | 'gemini-2.5-flash-image'
-    | 'gemini-2.5-pro-image'
-    // Gemini Imagen models (uses generateImages)
+    // Gemini Nano Banana models (uses generateContent API)
+    | 'gemini-2.5-flash-image'      // Nano Banana - fast, good quality
+    | 'gemini-3-pro-image-preview'  // Nano Banana Pro - best quality, supports 4K & thinking
+    // Gemini Imagen models (uses predict/generateImages API)
     | 'imagen-4.0-generate-001'
     | 'imagen-4.0-ultra-generate-001'
     | 'imagen-4.0-fast-generate-001'
@@ -353,4 +353,37 @@ export interface CaptionResponse {
     segments: CaptionSegment[];
     srtContent: string;
     assContent: string;
+}
+
+// Image editing types (for Gemini native image generation)
+export interface ImageEditModelInfo {
+    id: string;
+    name: string;
+    provider: 'gemini';
+    description: string;
+    supportsAspectRatio: boolean;
+}
+
+export interface ImageEditRequest {
+    imageUrl: string;          // URL of the image to edit (can be local /temp/ or /uploads/ path)
+    editPrompt: string;        // Natural language edit instruction
+    service?: ImageService;    // Default to gemini
+    model?: string;            // Model to use for editing
+    aspectRatio?: AspectRatio; // Optional aspect ratio for the output
+}
+
+export interface ImageEditResponse {
+    imageUrl: string;
+    imageId: string;
+    model: string;
+    originalImageUrl: string;  // Reference to the original
+}
+
+// Enhanced image prompt with scene timing info
+export interface ImagePromptWithTiming {
+    id: string;
+    prompt: string;
+    sceneDescription?: string;
+    duration?: number;         // Duration in seconds for this scene
+    startTime?: number;        // When this scene starts (for preview)
 }

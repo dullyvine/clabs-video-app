@@ -22,7 +22,7 @@ Appendix
 Overview
 This comprehensive guide provides detailed implementation instructions for integrating multiple AI and media APIs into your applications. The documentation covers four main categories of services:
 
-Image Generation: Generate high-quality images using Gemini's advanced models including Imagen 4, Imagen 4 Ultra, and Nano Banana series
+Image Generation: Generate high-quality images using Gemini's advanced models including Imagen 4, Imagen 4 Ultra, and Nano Banana series (gemini-2.5-flash-image, gemini-3-pro-image-preview)
 Large Language Models: Access powerful text generation capabilities through Gemini 2.5 Flash and Pro models
 Text-to-Speech: Convert text to natural-sounding audio with multiple voice options
 Stock Video: Search and retrieve relevant video content from Storyblocks and Pexels
@@ -31,9 +31,10 @@ Image Generation APIs
 Gemini API - Image Models
 Available Models
 gemini-2.5-flash-image - Fast image generation (Nano Banana)
-gemini-3-pro-image - Advanced image generation (Nano Banana Pro)
-imagen-4 - High-quality image generation
-imagen-4-ultra - Ultra high-quality image generation
+gemini-3-pro-image-preview - Professional quality with thinking mode, supports 4K (Nano Banana Pro)
+imagen-4.0-generate-001 - High-quality image generation (Imagen 4 Standard)
+imagen-4.0-ultra-generate-001 - Best quality image generation (Imagen 4 Ultra)
+imagen-4.0-fast-generate-001 - Fastest Imagen 4 option
 Authentication Setup
 Get your API key from Google AI Studio
 

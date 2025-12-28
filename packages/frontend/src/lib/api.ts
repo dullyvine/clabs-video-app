@@ -64,8 +64,14 @@ export const api = {
     },
 
     // Images
+    getImageServiceStatus: (): Promise<{ openrouter: boolean; gemini: boolean; available: string[] }> =>
+        fetchAPI('/images/status'),
+
     listImageModels: (service: string): Promise<any[]> =>
         fetchAPI(`/images/models?service=${service}`),
+
+    listImageEditModels: (): Promise<{ models: Array<{ id: string; name: string; provider: string; description: string; supportsAspectRatio: boolean }> }> =>
+        fetchAPI('/images/edit-models'),
 
     generateImagePrompts: (data: ImagePromptRequest): Promise<ImagePromptResponse> =>
         fetchAPI('/images/prompts', {
@@ -105,6 +111,23 @@ export const api = {
 
         return response.json();
     },
+
+    // Edit image using Gemini's native image editing
+    editImage: (data: {
+        imageUrl: string;
+        editPrompt: string;
+        model?: string;
+        aspectRatio?: string;
+    }): Promise<{
+        imageUrl: string;
+        imageId: string;
+        model: string;
+        originalImageUrl: string;
+    }> =>
+        fetchAPI('/images/edit', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
 
     // Stock Videos
     analyzeForStockVideos: (data: StockVideoRequest): Promise<StockVideoResponse> =>

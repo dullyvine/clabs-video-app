@@ -9,8 +9,30 @@ const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrout
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_IMAGE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
+/**
+ * Get the status of configured API keys for image services
+ */
+export function getImageServiceStatus(): { 
+    openrouter: boolean; 
+    gemini: boolean;
+    available: ('openrouter' | 'gemini')[];
+} {
+    const status = {
+        openrouter: !!OPENROUTER_API_KEY,
+        gemini: !!GEMINI_API_KEY,
+        available: [] as ('openrouter' | 'gemini')[]
+    };
+    
+    if (status.openrouter) status.available.push('openrouter');
+    if (status.gemini) status.available.push('gemini');
+    
+    return status;
+}
+
 // Nano Banana models (uses generateContent API)
-type NanoBananaModelId = 'gemini-2.5-flash-image' | 'gemini-2.5-pro-image';
+// Nano Banana = gemini-2.5-flash-image (fast)
+// Nano Banana Pro = gemini-3-pro-image-preview (best quality, supports thinking)
+type NanoBananaModelId = 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview';
 
 // Imagen models (uses generateImages API)
 type ImagenModelId = 'imagen-4.0-generate-001' | 'imagen-4.0-ultra-generate-001' | 'imagen-4.0-fast-generate-001';
@@ -46,25 +68,68 @@ const GEMINI_IMAGE_MODELS: Record<GeminiImageModelId, ImageModelInfo> = {
     },
     // Nano Banana family (uses generateContent API)
     'gemini-2.5-flash-image': {
-        name: 'Gemini Flash Image ⚡',
-        description: 'Fast, good-quality Gemini image generation',
+        name: 'Nano Banana (Flash) ⚡',
+        description: 'Fast image generation with Gemini 2.5 Flash',
         apiModel: 'gemini-2.5-flash-image',
         family: 'nano-banana'
     },
-    'gemini-2.5-pro-image': {
-        name: 'Gemini Pro Image (Best Quality)',
-        description: 'Highest quality Gemini image model',
-        apiModel: 'gemini-2.5-pro-image',
+    'gemini-3-pro-image-preview': {
+        name: 'Nano Banana Pro (Best)',
+        description: 'Professional quality with Gemini 3 Pro - supports 4K, thinking mode',
+        apiModel: 'gemini-3-pro-image-preview',
         family: 'nano-banana'
     }
 };
+
+// Models that support image editing (can take an image as input and modify it)
+interface ImageEditModelInfo {
+    id: string;
+    name: string;
+    description: string;
+    provider: 'gemini' | 'openrouter';
+    supportsAspectRatio: boolean;
+}
+
+const GEMINI_IMAGE_EDIT_MODELS: ImageEditModelInfo[] = [
+    {
+        id: 'gemini-2.5-flash-image',
+        name: 'Nano Banana (Fast) ⚡',
+        description: 'Fast image editing with Gemini 2.5 Flash',
+        provider: 'gemini',
+        supportsAspectRatio: true
+    },
+    {
+        id: 'gemini-3-pro-image-preview',
+        name: 'Nano Banana Pro (Best)',
+        description: 'Professional quality editing with Gemini 3 Pro - supports 4K',
+        provider: 'gemini',
+        supportsAspectRatio: true
+    }
+];
+
+/**
+ * List models capable of image editing based on configured API keys
+ */
+export function listImageEditModels(): ImageEditModelInfo[] {
+    const models: ImageEditModelInfo[] = [];
+    
+    // Add Gemini models if API key is configured
+    if (GEMINI_API_KEY) {
+        models.push(...GEMINI_IMAGE_EDIT_MODELS);
+    }
+    
+    // OpenRouter doesn't currently support image editing via their API
+    // but we could add future models here if they support it
+    
+    return models;
+}
 
 function isGeminiImageModel(model: string): model is GeminiImageModelId {
     return model in GEMINI_IMAGE_MODELS;
 }
 
 function isNanoBananaModel(model: string): model is NanoBananaModelId {
-    return model === 'gemini-2.5-flash-image' || model === 'gemini-2.5-pro-image';
+    return model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview';
 }
 
 function isImagenModel(model: string): model is ImagenModelId {
@@ -73,8 +138,15 @@ function isImagenModel(model: string): model is ImagenModelId {
 
 export async function listImageModels(service: ImageService): Promise<any[]> {
     if (service === 'openrouter') {
+        if (!OPENROUTER_API_KEY) {
+            console.log('[Image Service] OpenRouter API key not configured - returning default models');
+        }
         return listOpenRouterModels();
     } else if (service === 'gemini') {
+        if (!GEMINI_API_KEY) {
+            console.log('[Image Service] Gemini API key not configured - returning empty list');
+            return [];
+        }
         return Object.entries(GEMINI_IMAGE_MODELS).map(([id, meta]: [string, any]) => ({
             id,
             name: meta.name,
@@ -463,5 +535,137 @@ async function requestImagenImage(model: string, prompt: string, aspectRatio: As
 
     console.log(`[Imagen] Successfully received image data`);
     return { base64Data, mimeType };
+}
+
+/**
+ * Edit an existing image using Gemini's native image generation
+ * Uses conversation context to modify the image based on the edit prompt
+ */
+export async function editImage(
+    imageUrl: string,
+    editPrompt: string,
+    model: string = 'gemini-2.5-flash-image'
+): Promise<{ imageUrl: string; imageId: string; model: string; originalImageUrl: string }> {
+    if (!GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    console.log(`[Image Edit] Editing image with prompt: "${editPrompt.substring(0, 50)}..."`);
+
+    // Read the image file and convert to base64
+    let imageBase64: string;
+    let imageMimeType: string;
+
+    // Determine if it's a local file path or URL
+    if (imageUrl.startsWith('/temp/') || imageUrl.startsWith('/uploads/')) {
+        // Local file - read from disk
+        const basePath = path.join(__dirname, '../../');
+        const fullPath = imageUrl.startsWith('/temp/')
+            ? path.join(basePath, imageUrl)
+            : path.join(basePath, imageUrl);
+
+        if (!fs.existsSync(fullPath)) {
+            throw new Error(`Image file not found: ${fullPath}`);
+        }
+
+        const imageBuffer = fs.readFileSync(fullPath);
+        imageBase64 = imageBuffer.toString('base64');
+        imageMimeType = imageUrl.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    } else if (imageUrl.startsWith('http')) {
+        // Remote URL - download first
+        const imgResponse = await fetch(imageUrl);
+        if (!imgResponse.ok) {
+            throw new Error(`Failed to fetch image: ${imgResponse.status}`);
+        }
+        const imageBuffer = Buffer.from(await imgResponse.arrayBuffer());
+        imageBase64 = imageBuffer.toString('base64');
+        imageMimeType = imgResponse.headers.get('content-type') || 'image/png';
+    } else {
+        throw new Error(`Invalid image URL format: ${imageUrl}`);
+    }
+
+    // Use Gemini generateContent API with the image
+    const url = `${GEMINI_IMAGE_BASE_URL}/models/${model}:generateContent`;
+
+    const body = {
+        contents: [{
+            parts: [
+                {
+                    inlineData: {
+                        mimeType: imageMimeType,
+                        data: imageBase64
+                    }
+                },
+                {
+                    text: editPrompt
+                }
+            ]
+        }],
+        generationConfig: {
+            responseModalities: ["Text", "Image"]
+        }
+    };
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY
+        },
+        body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Image Edit] API Error:', errorText);
+        throw new Error(`Gemini image edit error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as any;
+
+    // Extract the edited image from the response
+    const candidates = data.candidates;
+    if (!candidates || candidates.length === 0) {
+        throw new Error('No candidates in Gemini response');
+    }
+
+    const parts = candidates[0]?.content?.parts;
+    if (!parts || parts.length === 0) {
+        throw new Error('No parts in candidate content');
+    }
+
+    // Find inline image data in parts
+    let resultBase64: string | null = null;
+    let resultMimeType = 'image/png';
+
+    for (const part of parts) {
+        const inlineData = part.inlineData || part.inline_data;
+        if (inlineData) {
+            resultBase64 = inlineData.data;
+            resultMimeType = inlineData.mimeType || inlineData.mime_type || 'image/png';
+            break;
+        }
+    }
+
+    if (!resultBase64) {
+        throw new Error('No image data returned from edit operation. The model may have returned text only.');
+    }
+
+    // Save the edited image
+    const extension = resultMimeType.includes('jpeg') || resultMimeType.includes('jpg') ? 'jpg' : 'png';
+    const filePath = getTempFilePath(extension);
+    const fileName = path.basename(filePath);
+    const imageId = path.parse(filePath).name;
+
+    fs.writeFileSync(filePath, Buffer.from(resultBase64, 'base64'));
+
+    console.log(`[Image Edit] Edited image saved to ${fileName}`);
+
+    return {
+        imageUrl: `/temp/${fileName}`,
+        imageId,
+        model,
+        originalImageUrl: imageUrl
+    };
 }
 

@@ -11,6 +11,7 @@ import { DownloadButton, DownloadAllButton } from '@/components/ui/DownloadButto
 import { OverlayManager } from '@/components/OverlayManager';
 import { ScriptChat } from '@/components/ScriptChat';
 import { QueuePanel } from '@/components/QueuePanel';
+import { ImageEditModal } from '@/components/ImageEditModal';
 import { api } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useQueue } from '@/contexts/QueueContext';
@@ -647,6 +648,12 @@ function AssetGenerationStep() {
   const [refiningIndex, setRefiningIndex] = useState<number | null>(null);
   const [brainDumpText, setBrainDumpText] = useState('');
   const [showBrainDump, setShowBrainDump] = useState(false);
+  const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
+  // Refine prompt modal state
+  const [refineModalIndex, setRefineModalIndex] = useState<number | null>(null);
+  const [refineModalInput, setRefineModalInput] = useState('');
+  // Service availability based on API keys
+  const [serviceStatus, setServiceStatus] = useState<{ openrouter: boolean; gemini: boolean; available: string[] } | null>(null);
   const processLog = useProcessLog();
   
   const sortedImages = React.useMemo(() => {
@@ -674,6 +681,39 @@ function AssetGenerationStep() {
     }).catch(console.error);
   }, [imageService]);
 
+  // Check which image services have API keys configured
+  React.useEffect(() => {
+    api.getImageServiceStatus().then(setServiceStatus).catch(console.error);
+  }, []);
+
+  // Auto-select first available service if current is unavailable
+  React.useEffect(() => {
+    if (serviceStatus && serviceStatus.available.length > 0) {
+      if (!serviceStatus.available.includes(imageService)) {
+        setImageService(serviceStatus.available[0]);
+      }
+    }
+  }, [serviceStatus, imageService]);
+
+  // Sync prompts with app context
+  React.useEffect(() => {
+    // Initialize prompts from app context when component mounts or app prompts change
+    if (app.imagePrompts.length > 0 && prompts.length === 0) {
+      setPrompts(app.imagePrompts);
+    }
+  }, [app.imagePrompts]);
+
+  // Track previous flow to detect changes
+  const prevFlowRef = React.useRef(app.selectedFlow);
+  React.useEffect(() => {
+    if (prevFlowRef.current !== app.selectedFlow) {
+      // Reset prompts and images when switching flows
+      setPrompts([]);
+      app.updateState({ imagePrompts: [], generatedImages: [] });
+      prevFlowRef.current = app.selectedFlow;
+    }
+  }, [app.selectedFlow]);
+
   const handlePromptChange = (index: number, value: string) => {
     const updated = prompts.map((prompt, idx) =>
       idx === index ? { ...prompt, prompt: value } : prompt
@@ -682,14 +722,19 @@ function AssetGenerationStep() {
     app.updateState({ imagePrompts: updated });
   };
 
-  const handleRefinePrompt = async (index: number) => {
+  const handleRefinePrompt = async (index: number, userIdeas?: string) => {
     const currentPrompt = prompts[index]?.prompt;
     if (!currentPrompt) return;
 
     setRefiningIndex(index);
     try {
+      // Combine current prompt with user ideas if provided
+      const promptToRefine = userIdeas 
+        ? `${currentPrompt}\n\nUser wants to add/modify: ${userIdeas}`
+        : currentPrompt;
+        
       const result = await api.refineImagePrompt({
-        prompt: currentPrompt,
+        prompt: promptToRefine,
         scriptContext: app.script,
         niche: app.selectedNiche || undefined,
         model: llmModel as any
@@ -702,6 +747,20 @@ function AssetGenerationStep() {
     } finally {
       setRefiningIndex(null);
     }
+  };
+
+  // Open refine modal for a prompt
+  const openRefineModal = (index: number) => {
+    setRefineModalIndex(index);
+    setRefineModalInput('');
+  };
+
+  // Execute refine from modal
+  const executeRefineFromModal = async () => {
+    if (refineModalIndex === null) return;
+    setRefineModalIndex(null);
+    await handleRefinePrompt(refineModalIndex, refineModalInput.trim() || undefined);
+    setRefineModalInput('');
   };
 
   const handleBrainDumpToPrompt = async () => {
@@ -874,9 +933,18 @@ function AssetGenerationStep() {
             value={imageService}
             onChange={(e) => setImageService(e.target.value)}
           >
-            <option value="gemini">Gemini Imagen (Free)</option>
-            <option value="openrouter">OpenRouter (FLUX, DALL-E)</option>
+            <option value="gemini" disabled={serviceStatus ? !serviceStatus.gemini : false}>
+              Gemini Imagen {serviceStatus && !serviceStatus.gemini ? '(No API Key)' : '(Free)'}
+            </option>
+            <option value="openrouter" disabled={serviceStatus ? !serviceStatus.openrouter : false}>
+              OpenRouter {serviceStatus && !serviceStatus.openrouter ? '(No API Key)' : '(FLUX, DALL-E)'}
+            </option>
           </select>
+          {serviceStatus && serviceStatus.available.length === 0 && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--error)', marginTop: '4px', display: 'block' }}>
+              No API keys configured. Check backend .env file.
+            </span>
+          )}
         </div>
 
         <div className="form-group" style={{ marginBottom: 0 }}>
@@ -884,10 +952,15 @@ function AssetGenerationStep() {
           <select
             value={imageModel}
             onChange={(e) => setImageModel(e.target.value)}
+            disabled={models.length === 0}
           >
-            {models.map((m: any) => (
-              <option key={m.id} value={m.id}>{m.name || m.id}</option>
-            ))}
+            {models.length === 0 ? (
+              <option>No models available</option>
+            ) : (
+              models.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name || m.id}</option>
+              ))
+            )}
           </select>
         </div>
       </div>
@@ -1009,16 +1082,46 @@ function AssetGenerationStep() {
               <h3 style={{ fontSize: '0.9375rem' }}>Generated Prompts</h3>
               <span className="section-badge">{prompts.length} prompts</span>
             </div>
+            {/* Show timing info for multi-image */}
+            {app.selectedFlow === 'multi-image' && app.voiceoverDuration && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                ~{Math.round(app.voiceoverDuration / prompts.length)}s each · {Math.round(app.voiceoverDuration)}s total
+              </span>
+            )}
           </div>
           <div style={{ maxHeight: '350px', overflow: 'auto', marginBottom: 'var(--spacing-md)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)' }}>
-            {prompts.map((p, i) => (
+            {prompts.map((p, i) => {
+              // Calculate estimated timing for this scene
+              const sceneDuration = app.selectedFlow === 'multi-image' && app.voiceoverDuration 
+                ? Math.round(app.voiceoverDuration / prompts.length) 
+                : null;
+              const sceneStart = sceneDuration ? i * sceneDuration : null;
+              
+              return (
               <div key={i} style={{ padding: 'var(--spacing-sm)', borderBottom: i < prompts.length - 1 ? '1px solid var(--glass-border)' : 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-secondary)' }}>
-                    Scene {i + 1}: {p.sceneDescription || 'No description'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                    <span style={{ 
+                      fontSize: '0.6875rem', 
+                      fontWeight: '600', 
+                      color: 'var(--primary)',
+                      background: 'var(--bg-secondary)',
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-xs)'
+                    }}>
+                      {i + 1}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-secondary)' }}>
+                      {p.sceneDescription || 'Scene description'}
+                    </span>
+                    {sceneDuration && (
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>
+                        ({sceneStart}s - {sceneStart! + sceneDuration}s)
+                      </span>
+                    )}
+                  </div>
                   <button
-                    onClick={() => handleRefinePrompt(i)}
+                    onClick={() => openRefineModal(i)}
                     disabled={refiningIndex === i}
                     style={{
                       padding: '2px 8px',
@@ -1031,7 +1134,7 @@ function AssetGenerationStep() {
                       opacity: refiningIndex === i ? 0.7 : 1
                     }}
                   >
-                    {refiningIndex === i ? '...' : 'Refine'}
+                    {refiningIndex === i ? '...' : 'AI Refine'}
                   </button>
                 </div>
                 <textarea
@@ -1041,7 +1144,8 @@ function AssetGenerationStep() {
                   style={{ width: '100%', fontSize: '0.8125rem' }}
                 />
               </div>
-            ))}
+            );
+            })}
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
             <Button onClick={handleGenerateImages} isLoading={loading}>
@@ -1092,6 +1196,21 @@ function AssetGenerationStep() {
                         icon={false}
                       />
                       <button
+                        onClick={() => setEditingImageIndex(promptIndex)}
+                        style={{ 
+                          flex: 1, 
+                          padding: '6px 8px', 
+                          fontSize: '0.75rem', 
+                          background: 'var(--primary)', 
+                          border: 'none', 
+                          borderRadius: 'var(--radius-xs)', 
+                          cursor: 'pointer',
+                          color: 'white'
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
                         onClick={() => handleRegenerateImage(promptIndex)}
                         disabled={regeneratingIndex === promptIndex}
                         style={{ 
@@ -1116,6 +1235,123 @@ function AssetGenerationStep() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Image Edit Modal */}
+      {(() => {
+        // Find the image by promptIndex, not array index
+        const editingImage = editingImageIndex !== null 
+          ? sortedImages.find((img: any) => (img.promptIndex ?? 0) === editingImageIndex)
+          : null;
+        
+        if (!editingImage || editingImageIndex === null) return null;
+        
+        return (
+          <ImageEditModal
+            imageUrl={editingImage.imageUrl}
+            imageIndex={editingImageIndex}
+            onClose={() => setEditingImageIndex(null)}
+            onSave={(newImageUrl, newImageId) => {
+              // Update the image in the state
+              const updated = [...app.generatedImages];
+              const actualIndex = updated.findIndex(img => 
+                (img.promptIndex ?? 0) === editingImageIndex
+              );
+              if (actualIndex !== -1) {
+                updated[actualIndex] = {
+                  ...updated[actualIndex],
+                  imageUrl: newImageUrl,
+                  imageId: newImageId
+                };
+                app.updateState({ generatedImages: updated });
+                toastSuccess('Image updated successfully!');
+              }
+              setEditingImageIndex(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Refine Prompt Modal */}
+      {refineModalIndex !== null && (
+        <div 
+          className="refine-modal-overlay"
+          onClick={() => setRefineModalIndex(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--spacing-md)'
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-lg)',
+              padding: 'var(--spacing-lg)',
+              maxWidth: '500px',
+              width: '100%',
+              border: '1px solid var(--glass-border)'
+            }}
+          >
+            <h3 style={{ margin: '0 0 var(--spacing-sm) 0', fontSize: '1rem' }}>
+              Refine Prompt #{refineModalIndex + 1}
+            </h3>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+              Add your ideas or leave empty for automatic AI refinement
+            </p>
+            
+            {/* Current prompt preview */}
+            <div style={{ 
+              padding: 'var(--spacing-sm)', 
+              background: 'var(--bg-tertiary)', 
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: 'var(--spacing-md)',
+              fontSize: '0.75rem',
+              color: 'var(--text-secondary)',
+              maxHeight: '80px',
+              overflow: 'auto'
+            }}>
+              <strong>Current:</strong> {prompts[refineModalIndex]?.prompt?.substring(0, 200)}...
+            </div>
+            
+            <textarea
+              value={refineModalInput}
+              onChange={(e) => setRefineModalInput(e.target.value)}
+              placeholder="e.g., 'make it more dramatic', 'add golden hour lighting', 'include a person in silhouette'..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: 'var(--spacing-sm)',
+                fontSize: '0.875rem',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--text-primary)',
+                resize: 'none',
+                marginBottom: 'var(--spacing-md)'
+              }}
+              autoFocus
+            />
+            
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={() => setRefineModalIndex(null)}>
+                Cancel
+              </Button>
+              <Button onClick={executeRefineFromModal}>
+                {refineModalInput.trim() ? 'Refine with Ideas' : 'Auto Refine'}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -2085,8 +2321,57 @@ function VideoGenerationStep() {
                 
                 return (
                   <>
-                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                    <div style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Image Duration Settings</span>
+                    </div>
+                    
+                    {/* Visual Timeline Preview */}
+                    <div style={{ 
+                      marginBottom: 'var(--spacing-md)',
+                      padding: 'var(--spacing-sm)',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: 'var(--radius-sm)'
+                    }}>
+                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Timeline Preview</span>
+                        <span>{Math.round(voiceoverDuration)}s total</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '2px', height: '32px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
+                        {app.generatedImages.map((img: any, idx: number) => {
+                          const duration = app.imageDuration;
+                          const startTime = idx * duration;
+                          const widthPercent = Math.min((duration / voiceoverDuration) * 100, 100 - (idx * (duration / voiceoverDuration) * 100));
+                          return (
+                            <div
+                              key={idx}
+                              style={{
+                                flex: duration,
+                                background: `hsl(${(idx * 40) % 360}, 60%, 50%)`,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.625rem',
+                                color: 'white',
+                                fontWeight: '500',
+                                minWidth: '20px'
+                              }}
+                              title={`Image ${idx + 1}: ${startTime}s - ${startTime + duration}s`}
+                            >
+                              {imageCount <= 10 ? idx + 1 : ''}
+                            </div>
+                          );
+                        })}
+                        {!coversFullAudio && (
+                          <div 
+                            style={{ 
+                              flex: voiceoverDuration - totalImagesDuration, 
+                              background: 'repeating-linear-gradient(45deg, var(--warning) 0px, var(--warning) 4px, transparent 4px, transparent 8px)',
+                              opacity: 0.6
+                            }}
+                            title={`Last image extends: +${Math.round(voiceoverDuration - totalImagesDuration)}s`}
+                          />
+                        )}
+                      </div>
                     </div>
                     
                     <div style={{ 

@@ -5,14 +5,28 @@ import {
     ImagePromptRequest,
     ImagePromptResponse,
     ImageGenerationRequest,
-    ImageGenerationResponse
+    ImageGenerationResponse,
+    ImageEditRequest,
+    ImageEditResponse
 } from 'shared/src/types';
 import { generateImagePrompt, generateMultipleImagePrompts } from '../services/llm.service';
-import { generateImage, generateMultipleImages, listImageModels } from '../services/image.service';
+import { generateImage, generateMultipleImages, listImageModels, editImage, listImageEditModels, getImageServiceStatus } from '../services/image.service';
 import { trackFile } from '../services/file.service';
 import { upload } from '../utils/upload';
 
 export const imagesRouter = express.Router();
+
+// Get image service availability status (based on API keys)
+imagesRouter.get('/status', async (req, res) => {
+    try {
+        const status = getImageServiceStatus();
+        console.log(`[Images Route] Service status: OpenRouter=${status.openrouter}, Gemini=${status.gemini}`);
+        res.json(status);
+    } catch (error: any) {
+        console.error('Status check error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Generate image prompts from script
 imagesRouter.post('/prompts', async (req, res) => {
@@ -106,6 +120,18 @@ imagesRouter.get('/models', async (req, res) => {
     }
 });
 
+// List available image editing models
+imagesRouter.get('/edit-models', async (req, res) => {
+    try {
+        const models = listImageEditModels();
+        console.log(`[Images Route] Listing ${models.length} image editing models`);
+        res.json({ models });
+    } catch (error: any) {
+        console.error('Edit models list error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Upload image
 imagesRouter.post('/upload', upload.single('image'), async (req, res) => {
     try {
@@ -123,6 +149,37 @@ imagesRouter.post('/upload', upload.single('image'), async (req, res) => {
         });
     } catch (error: any) {
         console.error('Image upload error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Edit image using Gemini's native image generation
+imagesRouter.post('/edit', async (req, res) => {
+    try {
+        const { imageUrl, editPrompt, model }: ImageEditRequest = req.body;
+
+        if (!imageUrl || !editPrompt) {
+            return res.status(400).json({ error: 'imageUrl and editPrompt are required' });
+        }
+
+        console.log(`[Images Route] Editing image: ${imageUrl} with prompt: "${editPrompt.substring(0, 50)}..."`);
+
+        const result = await editImage(
+            imageUrl,
+            editPrompt,
+            model || 'gemini-2.0-flash-exp'
+        );
+
+        const response: ImageEditResponse = {
+            imageUrl: result.imageUrl,
+            imageId: result.imageId,
+            model: result.model,
+            originalImageUrl: result.originalImageUrl
+        };
+
+        res.json(response);
+    } catch (error: any) {
+        console.error('Image edit error:', error);
         res.status(500).json({ error: error.message });
     }
 });
