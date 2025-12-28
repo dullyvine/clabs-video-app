@@ -218,6 +218,7 @@ function ScriptVoiceoverStep() {
     age: ''
   });
   const [showAIWriter, setShowAIWriter] = useState(false);
+  const [isScriptExpanded, setIsScriptExpanded] = useState(false);
   const processLog = useProcessLog();
   const scriptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -361,21 +362,31 @@ function ScriptVoiceoverStep() {
         )}
       </div>
 
-      <div className="form-group">
-        <label className="form-label">
-          Your Script
-          {app.script && (
-            <span className="label-stats">
-              {app.script.split(/\s+/).filter(w => w).length} words · ~{Math.round(app.script.split(/\s+/).filter(w => w).length / 150 * 60)}s
-            </span>
-          )}
-        </label>
+      <div className={`form-group script-form-group ${isScriptExpanded ? 'script-expanded' : ''}`}>
+        <div className="form-label-row">
+          <label className="form-label">
+            Your Script
+            {app.script && (
+              <span className="label-stats">
+                {app.script.split(/\s+/).filter(w => w).length} words · ~{Math.round(app.script.split(/\s+/).filter(w => w).length / 150 * 60)}s
+              </span>
+            )}
+          </label>
+          <button
+            type="button"
+            className="script-expand-btn"
+            onClick={() => setIsScriptExpanded(!isScriptExpanded)}
+            title={isScriptExpanded ? 'Minimize editor' : 'Expand editor for focused writing'}
+          >
+            {isScriptExpanded ? '⊖ Minimize' : '⊕ Expand'}
+          </button>
+        </div>
         <textarea
           ref={scriptTextareaRef}
           placeholder="Enter your video script here or use AI to generate one..."
           value={app.script}
           onChange={(e) => app.updateState({ script: e.target.value })}
-          rows={6}
+          rows={isScriptExpanded ? 20 : 6}
         />
         <p className="form-hint">{app.script.length} characters · {app.script.split(/\s+/).filter(w => w).length} words</p>
       </div>

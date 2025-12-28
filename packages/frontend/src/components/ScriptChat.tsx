@@ -6,6 +6,48 @@ import { api } from '@/lib/api';
 import { ChatMessage, ChatModelDefinition, Niche, SmartChatResponse } from 'shared/src/types';
 import './ScriptChat.css';
 
+// Parse markdown-style formatting to clean HTML
+function parseMessageContent(content: string): React.ReactNode {
+    // Split by code blocks first
+    const parts = content.split(/(```[\s\S]*?```|`[^`]+`)/);
+    
+    return parts.map((part, idx) => {
+        // Code blocks
+        if (part.startsWith('```') && part.endsWith('```')) {
+            const code = part.slice(3, -3).replace(/^\w*\n/, ''); // Remove language identifier
+            return <pre key={idx} className="chat-code-block">{code}</pre>;
+        }
+        // Inline code
+        if (part.startsWith('`') && part.endsWith('`')) {
+            return <code key={idx} className="chat-inline-code">{part.slice(1, -1)}</code>;
+        }
+        
+        // Process regular text with markdown
+        let processed = part;
+        
+        // Bold: **text** or __text__
+        processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        processed = processed.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+        
+        // Italic: *text* or _text_ (but not inside words)
+        processed = processed.replace(/(?<![\w*])\*([^*]+)\*(?![\w*])/g, '<em>$1</em>');
+        processed = processed.replace(/(?<![\w_])_([^_]+)_(?![\w_])/g, '<em>$1</em>');
+        
+        // Headers: # ## ###
+        processed = processed.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+        processed = processed.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+        processed = processed.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+        
+        // Bullet points
+        processed = processed.replace(/^[•\-\*] (.+)$/gm, '<li>$1</li>');
+        
+        // Numbered lists
+        processed = processed.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
+        
+        return <span key={idx} dangerouslySetInnerHTML={{ __html: processed }} />;
+    });
+}
+
 interface ScriptChatProps {
     onUseAsScript: (script: string, wordCount: number) => void;
     initialScript?: string;
@@ -38,18 +80,6 @@ export function ScriptChat({
     const [isExpanded, setIsExpanded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-    // Simple markdown-like formatting for chat messages
-    const formatMessage = (text: string) => {
-        // Remove asterisks used for bold/emphasis and just show clean text
-        let formatted = text
-            .replace(/\*\*\*(.+?)\*\*\*/g, '$1')  // Remove ***bold italic***
-            .replace(/\*\*(.+?)\*\*/g, '$1')      // Remove **bold**
-            .replace(/\*(.+?)\*/g, '$1')          // Remove *italic*
-            .replace(/\_\_(.+?)\_\_/g, '$1')      // Remove __underline__
-            .replace(/\_(.+?)\_/g, '$1');          // Remove _italic_
-        return formatted;
-    };
 
     // Get current model definition
     const currentModel = models.find(m => m.id === model);
@@ -223,21 +253,22 @@ export function ScriptChat({
             {/* Header */}
             <div className="script-chat-header">
                 <div className="script-chat-title-area">
+                    <span className="script-chat-icon">✨</span>
                     <span className="script-chat-title">AI Script Writer</span>
                     {lastResponse?.detectedIntent && (
                         <span className={`script-chat-intent-badge ${lastResponse.detectedIntent}`}>
-                            {lastResponse.detectedIntent === 'research' && 'Research'}
-                            {lastResponse.detectedIntent === 'write' && 'Writing'}
-                            {lastResponse.detectedIntent === 'refine' && 'Refining'}
-                            {lastResponse.detectedIntent === 'general' && 'Chat'}
+                            {lastResponse.detectedIntent === 'research' && '🔍 Research'}
+                            {lastResponse.detectedIntent === 'write' && '✍️ Writing'}
+                            {lastResponse.detectedIntent === 'refine' && '✨ Refining'}
+                            {lastResponse.detectedIntent === 'general' && '💬 Chat'}
                         </span>
                     )}
                     {lastResponse?.searchUsed && (
-                        <span className="script-chat-search-badge">Web</span>
+                        <span className="script-chat-search-badge">🌐 Web</span>
                     )}
                 </div>
                 <div className="script-chat-controls">
-                    <div className="script-chat-model-selector">
+                    <div className="script-chat-model-dropdown">
                         <select
                             value={model}
                             onChange={(e) => {
@@ -253,10 +284,10 @@ export function ScriptChat({
                         >
                             {/* Group models by provider */}
                             {models.filter(m => m.provider === 'gemini').length > 0 && (
-                                <optgroup label="Gemini">
+                                <optgroup label="Google Gemini">
                                     {models.filter(m => m.provider === 'gemini').map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.name}
+                                            {m.name} {m.supportsSearch ? '🔍' : ''}
                                         </option>
                                     ))}
                                 </optgroup>
@@ -265,33 +296,34 @@ export function ScriptChat({
                                 <optgroup label="OpenRouter">
                                     {models.filter(m => m.provider === 'openrouter').map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.name}
+                                            {m.name} {m.supportsSearch ? '🔍' : ''}
                                         </option>
                                     ))}
                                 </optgroup>
                             )}
                         </select>
-                        {currentModel?.supportsSearch && (
-                            <button
-                                onClick={() => setUseSearch(!useSearch)}
-                                className={`script-chat-search-btn ${useSearch ? 'active' : ''}`}
-                                title={useSearch ? 'Web search enabled' : 'Enable web search'}
-                            >
-                                🔍
-                            </button>
-                        )}
                     </div>
+                    {/* Search toggle - only show if model supports it */}
+                    {currentModel?.supportsSearch && (
+                        <button
+                            onClick={() => setUseSearch(!useSearch)}
+                            className={`script-chat-search-toggle ${useSearch ? 'active' : ''}`}
+                            title={useSearch ? 'Web search enabled - click to disable' : 'Enable web search for current information'}
+                        >
+                            🔍 Search
+                        </button>
+                    )}
                     {messages.length > 0 && (
                         <button onClick={clearChat} className="script-chat-clear" title="Clear chat">
                             Clear
                         </button>
                     )}
-                    <button 
-                        onClick={() => setIsExpanded(!isExpanded)} 
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
                         className="script-chat-expand-btn"
-                        title={isExpanded ? 'Minimize' : 'Expand'}
+                        title={isExpanded ? 'Minimize chat' : 'Expand chat for focused writing'}
                     >
-                        {isExpanded ? '⊟' : '⊞'}
+                        {isExpanded ? '⊖' : '⊕'}
                     </button>
                 </div>
             </div>
@@ -356,7 +388,7 @@ export function ScriptChat({
                                 className={`script-chat-message ${msg.role}`}
                             >
                                 <div className="script-chat-message-content">
-                                    {formatMessage(msg.content)}
+                                    {msg.role === 'assistant' ? parseMessageContent(msg.content) : msg.content}
                                 </div>
                                 {msg.role === 'assistant' && (
                                     <div className="script-chat-message-footer">
