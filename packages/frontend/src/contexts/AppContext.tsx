@@ -13,7 +13,8 @@ import {
     StockVideoOrientation,
     VideoQuality,
     CaptionStyle,
-    ChatMessage
+    ChatMessage,
+    TimelineSlot
 } from 'shared/src/types';
 import { api } from '@/lib/api';
 
@@ -72,6 +73,10 @@ interface AppState {
     // Video quality
     videoQuality: VideoQuality;
 
+    // Timeline editor - custom asset timing
+    useCustomTiming: boolean;
+    timelineSlots: TimelineSlot[];
+
     // Captions
     captionsEnabled: boolean;
     captionStyle: CaptionStyle;
@@ -115,6 +120,8 @@ const initialState: AppState = {
     videoJobId: null,
     finalVideoUrl: null,
     videoQuality: 'standard',
+    useCustomTiming: false,
+    timelineSlots: [],
     captionsEnabled: true,
     captionStyle: {
         fontSize: 'medium',

@@ -387,3 +387,34 @@ export interface ImagePromptWithTiming {
     duration?: number;         // Duration in seconds for this scene
     startTime?: number;        // When this scene starts (for preview)
 }
+
+// Timeline editor types for custom asset timing
+export interface TimelineSlot {
+    id: string;
+    type: 'image' | 'video';
+    assetUrl: string;
+    thumbnailUrl?: string;
+    duration: number;          // Duration in seconds
+    startTime: number;         // Calculated from sequence order
+    label?: string;            // Display label (e.g., "Scene 1", video title)
+    originalIndex?: number;    // Original index in source array (for images/videos)
+}
+
+// Request type for video generation with custom timing
+export interface CustomTimingVideoRequest extends Omit<BaseVideoRequest, 'voiceoverDuration'> {
+    flowType: 'multi-image' | 'stock-video';
+    voiceoverDuration: number;
+    timelineSlots: Array<{
+        assetUrl: string;
+        duration: number;
+        type: 'image' | 'video';
+    }>;
+    useCustomTiming: true;
+}
+
+// Extended video generation request that supports custom timing
+export type ExtendedVideoGenerationRequest = 
+    | SingleImageVideoRequest 
+    | MultiImageVideoRequest 
+    | StockVideoVideoRequest 
+    | CustomTimingVideoRequest;

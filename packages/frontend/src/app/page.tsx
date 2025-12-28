@@ -12,6 +12,7 @@ import { OverlayManager } from '@/components/OverlayManager';
 import { ScriptChat } from '@/components/ScriptChat';
 import { QueuePanel } from '@/components/QueuePanel';
 import { ImageEditModal } from '@/components/ImageEditModal';
+import { TimelineEditor, TimelineSlot as TimelineEditorSlot } from '@/components/TimelineEditor';
 import { api } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useQueue } from '@/contexts/QueueContext';
@@ -20,7 +21,8 @@ import {
   StockVideoAsset,
   StockVideoOrientation,
   StockVideoProvider,
-  StockVideoSlot
+  StockVideoSlot,
+  TimelineSlot
 } from 'shared/src/types';
 
 export default function Home() {
@@ -2004,12 +2006,34 @@ function VideoGenerationStep() {
           imageUrl: img.imageUrl,
           duration: app.imageDuration,
         }));
+        // Add custom timing data if available
+        if (app.useCustomTiming && app.timelineSlots.length > 0) {
+          queueState.useCustomTiming = true;
+          queueState.timelineSlots = app.timelineSlots.map(slot => ({
+            id: slot.id,
+            type: slot.type,
+            assetUrl: slot.assetUrl,
+            duration: slot.duration,
+            originalIndex: slot.originalIndex
+          }));
+        }
       } else if (app.selectedFlow === 'stock-video') {
         queueState.selectedVideos = app.selectedVideos.map(video => ({
           id: video.id,
           url: video.url,
           duration: video.duration
         }));
+        // Add custom timing data if available
+        if (app.useCustomTiming && app.timelineSlots.length > 0) {
+          queueState.useCustomTiming = true;
+          queueState.timelineSlots = app.timelineSlots.map(slot => ({
+            id: slot.id,
+            type: slot.type,
+            assetUrl: slot.assetUrl,
+            duration: slot.duration,
+            originalIndex: slot.originalIndex
+          }));
+        }
       }
 
       // Add to queue - the QueueContext will handle starting the job
@@ -2321,112 +2345,9 @@ function VideoGenerationStep() {
         </div>
       ) : (
         <div>
-          {app.selectedFlow === 'multi-image' && (
-            <div style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              {(() => {
-                const imageCount = app.generatedImages.length;
-                const voiceoverDuration = app.voiceoverDuration || 0;
-                const suggestedDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
-                const totalImagesDuration = imageCount * app.imageDuration;
-                const coversFullAudio = totalImagesDuration >= voiceoverDuration;
-                
-                return (
-                  <>
-                    <div style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Image Duration Settings</span>
-                    </div>
-                    
-                    {/* Visual Timeline Preview */}
-                    <div style={{ 
-                      marginBottom: 'var(--spacing-md)',
-                      padding: 'var(--spacing-sm)',
-                      background: 'var(--bg-secondary)',
-                      borderRadius: 'var(--radius-sm)'
-                    }}>
-                      <div style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Timeline Preview</span>
-                        <span>{Math.round(voiceoverDuration)}s total</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: '2px', height: '32px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
-                        {app.generatedImages.map((img: any, idx: number) => {
-                          const duration = app.imageDuration;
-                          const startTime = idx * duration;
-                          const widthPercent = Math.min((duration / voiceoverDuration) * 100, 100 - (idx * (duration / voiceoverDuration) * 100));
-                          return (
-                            <div
-                              key={idx}
-                              style={{
-                                flex: duration,
-                                background: `hsl(${(idx * 40) % 360}, 60%, 50%)`,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.625rem',
-                                color: 'white',
-                                fontWeight: '500',
-                                minWidth: '20px'
-                              }}
-                              title={`Image ${idx + 1}: ${startTime}s - ${startTime + duration}s`}
-                            >
-                              {imageCount <= 10 ? idx + 1 : ''}
-                            </div>
-                          );
-                        })}
-                        {!coversFullAudio && (
-                          <div 
-                            style={{ 
-                              flex: voiceoverDuration - totalImagesDuration, 
-                              background: 'repeating-linear-gradient(45deg, var(--warning) 0px, var(--warning) 4px, transparent 4px, transparent 8px)',
-                              opacity: 0.6
-                            }}
-                            title={`Last image extends: +${Math.round(voiceoverDuration - totalImagesDuration)}s`}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div style={{ 
-                      padding: 'var(--spacing-sm)', 
-                      background: 'var(--bg-secondary)', 
-                      borderRadius: 'var(--radius-sm)',
-                      marginBottom: 'var(--spacing-sm)'
-                    }}>
-                      <p style={{ fontSize: '0.8125rem', marginBottom: 'var(--spacing-xs)' }}>
-                        Suggested: <strong>{suggestedDuration}s</strong> per image to evenly distribute across {Math.round(voiceoverDuration)}s audio
-                      </p>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => app.updateState({ imageDuration: suggestedDuration })}
-                      >
-                        Apply Suggestion
-                      </Button>
-                    </div>
-                    
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Duration per image: <strong>{app.imageDuration}s</strong></label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="30"
-                        value={app.imageDuration}
-                        onChange={(e) => app.updateState({ imageDuration: parseInt(e.target.value) })}
-                      />
-                    </div>
-                    
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                      <p>Images: {imageCount} × {app.imageDuration}s = <strong>{totalImagesDuration}s</strong> | Voiceover: <strong>{Math.round(voiceoverDuration)}s</strong></p>
-                      
-                      {!coversFullAudio && (
-                        <p style={{ color: 'var(--warning)', marginTop: '4px' }}>
-                          Note: Last image will extend to cover remaining {Math.round(voiceoverDuration - totalImagesDuration)}s
-                        </p>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+          {/* Timeline Editor for multi-image and stock-video flows */}
+          {(app.selectedFlow === 'multi-image' || app.selectedFlow === 'stock-video') && (
+            <TimelineSection />
           )}
           
           <div className="actions-bar">
@@ -2441,5 +2362,344 @@ function VideoGenerationStep() {
         </div>
       )}
     </Card>
+  );
+}
+
+// Timeline section component for multi-image and stock-video flows
+function TimelineSection() {
+  const app = useApp();
+  const [showAdvancedTimeline, setShowAdvancedTimeline] = useState(false);
+  const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+
+  // Build timeline slots from current assets
+  const buildTimelineSlots = useCallback((): TimelineEditorSlot[] => {
+    const voiceoverDuration = app.voiceoverDuration || 60;
+    
+    if (app.selectedFlow === 'multi-image') {
+      const imageCount = app.generatedImages.length;
+      const defaultDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
+      
+      // Use existing timeline slots if available, otherwise build from images
+      if (app.useCustomTiming && app.timelineSlots.length === app.generatedImages.length) {
+        let startTime = 0;
+        return app.timelineSlots.map((slot, idx) => {
+          const result = {
+            ...slot,
+            startTime,
+            assetUrl: toAssetUrl(slot.assetUrl)
+          };
+          startTime += slot.duration;
+          return result;
+        });
+      }
+      
+      let startTime = 0;
+      return app.generatedImages.map((img: any, idx) => {
+        const duration = app.imageDuration || defaultDuration;
+        const slot: TimelineEditorSlot = {
+          id: img.imageId || `img-${idx}`,
+          type: 'image',
+          assetUrl: toAssetUrl(img.imageUrl),
+          duration: duration,
+          startTime: startTime,
+          label: `Scene ${idx + 1}`,
+          originalIndex: idx
+        };
+        startTime += duration;
+        return slot;
+      });
+    } else if (app.selectedFlow === 'stock-video') {
+      const videoCount = app.selectedVideos.length;
+      const defaultDuration = videoCount > 0 ? Math.ceil(voiceoverDuration / videoCount) : 5;
+      
+      // Use existing timeline slots if available
+      if (app.useCustomTiming && app.timelineSlots.length === app.selectedVideos.length) {
+        let startTime = 0;
+        return app.timelineSlots.map((slot, idx) => {
+          const result = {
+            ...slot,
+            startTime
+          };
+          startTime += slot.duration;
+          return result;
+        });
+      }
+      
+      let startTime = 0;
+      return app.selectedVideos.map((video, idx) => {
+        const duration = video.duration || defaultDuration;
+        const slot: TimelineEditorSlot = {
+          id: video.id || `vid-${idx}`,
+          type: 'video',
+          assetUrl: video.url,
+          thumbnailUrl: video.thumbnailUrl,
+          duration: Math.min(duration, voiceoverDuration / videoCount),
+          startTime: startTime,
+          label: video.title || `Video ${idx + 1}`,
+          originalIndex: idx
+        };
+        startTime += slot.duration;
+        return slot;
+      });
+    }
+    
+    return [];
+  }, [app.selectedFlow, app.generatedImages, app.selectedVideos, app.voiceoverDuration, app.imageDuration, app.useCustomTiming, app.timelineSlots]);
+
+  const [localSlots, setLocalSlots] = useState<TimelineEditorSlot[]>(buildTimelineSlots);
+
+  // Rebuild slots when assets change
+  useEffect(() => {
+    if (!app.useCustomTiming) {
+      setLocalSlots(buildTimelineSlots());
+    }
+  }, [buildTimelineSlots, app.useCustomTiming]);
+
+  // Handle timeline slot changes
+  const handleSlotsChange = (newSlots: TimelineEditorSlot[]) => {
+    setLocalSlots(newSlots);
+    
+    // Update app state with custom timing
+    const timelineSlots: TimelineSlot[] = newSlots.map((slot, idx) => ({
+      id: slot.id,
+      type: slot.type,
+      assetUrl: slot.assetUrl.replace('http://localhost:3001', ''),
+      thumbnailUrl: slot.thumbnailUrl,
+      duration: slot.duration,
+      startTime: slot.startTime,
+      label: slot.label,
+      originalIndex: slot.originalIndex
+    }));
+    
+    app.updateState({ 
+      timelineSlots,
+      useCustomTiming: true
+    });
+
+    // Also update imageDuration to the average for multi-image
+    if (app.selectedFlow === 'multi-image' && newSlots.length > 0) {
+      const avgDuration = Math.round(newSlots.reduce((sum, s) => sum + s.duration, 0) / newSlots.length);
+      app.updateState({ imageDuration: avgDuration });
+    }
+  };
+
+  // Simple duration adjustment for uniform timing
+  const handleUniformDurationChange = (newDuration: number) => {
+    app.updateState({ 
+      imageDuration: newDuration,
+      useCustomTiming: false,
+      timelineSlots: []
+    });
+    setLocalSlots(buildTimelineSlots());
+  };
+
+  const imageCount = app.selectedFlow === 'multi-image' ? app.generatedImages.length : app.selectedVideos.length;
+  const voiceoverDuration = app.voiceoverDuration || 0;
+  const suggestedDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
+  const totalAssetsDuration = localSlots.reduce((sum, s) => sum + s.duration, 0);
+  const coversFullAudio = totalAssetsDuration >= voiceoverDuration;
+
+  return (
+    <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      {/* Toggle between simple and advanced timeline */}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        marginBottom: 'var(--spacing-md)',
+        padding: 'var(--spacing-sm) var(--spacing-md)',
+        background: 'var(--bg-tertiary)',
+        borderRadius: 'var(--radius-md)'
+      }}>
+        <div>
+          <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+            {app.selectedFlow === 'multi-image' ? 'Image' : 'Video'} Timeline
+          </span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'var(--spacing-sm)' }}>
+            {imageCount} assets • {Math.round(voiceoverDuration)}s audio
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
+          <label style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 'var(--spacing-xs)',
+            fontSize: '0.8125rem',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={showAdvancedTimeline}
+              onChange={(e) => setShowAdvancedTimeline(e.target.checked)}
+              style={{ width: '16px', height: '16px' }}
+            />
+            Advanced Editor
+          </label>
+        </div>
+      </div>
+
+      {showAdvancedTimeline ? (
+        /* Advanced Timeline Editor */
+        <TimelineEditor
+          slots={localSlots}
+          totalDuration={voiceoverDuration}
+          onSlotsChange={handleSlotsChange}
+          voiceoverUrl={app.voiceoverUrl || undefined}
+        />
+      ) : (
+        /* Simple Duration Settings */
+        <div style={{ padding: 'var(--spacing-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+          {/* Visual Timeline Preview - Improved */}
+          <div style={{ 
+            marginBottom: 'var(--spacing-md)',
+            padding: 'var(--spacing-md)',
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--glass-border)'
+          }}>
+            <div style={{ 
+              fontSize: '0.75rem', 
+              color: 'var(--text-secondary)', 
+              marginBottom: 'var(--spacing-sm)', 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span style={{ fontWeight: '600' }}>📊 Timeline Preview</span>
+              <span style={{ fontFamily: 'Monaco, Consolas, monospace' }}>
+                {totalAssetsDuration}s / {Math.round(voiceoverDuration)}s
+              </span>
+            </div>
+            
+            {/* Timeline bar */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '2px', 
+              height: '48px', 
+              background: '#1a1a1a', 
+              borderRadius: 'var(--radius-sm)', 
+              overflow: 'hidden',
+              border: '1px solid var(--glass-border)'
+            }}>
+              {localSlots.map((slot, idx) => {
+                const duration = slot.duration;
+                const widthPercent = (duration / Math.max(voiceoverDuration, totalAssetsDuration)) * 100;
+                return (
+                  <div
+                    key={slot.id}
+                    style={{
+                      width: `${widthPercent}%`,
+                      minWidth: '24px',
+                      background: `linear-gradient(135deg, hsl(${(idx * 45) % 360}, 65%, 45%) 0%, hsl(${(idx * 45) % 360}, 55%, 35%) 100%)`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.625rem',
+                      color: 'white',
+                      fontWeight: '600',
+                      position: 'relative',
+                      borderRight: idx < localSlots.length - 1 ? '1px solid rgba(0,0,0,0.3)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title={`${slot.label || `Clip ${idx + 1}`}: ${duration}s (${slot.startTime}s - ${slot.startTime + duration}s)`}
+                  >
+                    <span style={{ opacity: 0.9 }}>{idx + 1}</span>
+                    <span style={{ fontSize: '0.5625rem', opacity: 0.7, marginTop: '2px' }}>{duration}s</span>
+                  </div>
+                );
+              })}
+              {!coversFullAudio && (
+                <div 
+                  style={{ 
+                    width: `${((voiceoverDuration - totalAssetsDuration) / voiceoverDuration) * 100}%`,
+                    minWidth: '20px',
+                    background: 'repeating-linear-gradient(45deg, rgba(234, 179, 8, 0.3) 0px, rgba(234, 179, 8, 0.3) 4px, transparent 4px, transparent 8px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.5rem',
+                    color: 'var(--warning)'
+                  }}
+                  title={`Gap: Last clip extends by ${Math.round(voiceoverDuration - totalAssetsDuration)}s`}
+                >
+                  +{Math.round(voiceoverDuration - totalAssetsDuration)}s
+                </div>
+              )}
+            </div>
+            
+            {/* Time markers */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              marginTop: '4px',
+              fontSize: '0.5625rem',
+              color: 'var(--text-tertiary)',
+              fontFamily: 'Monaco, Consolas, monospace'
+            }}>
+              <span>0:00</span>
+              <span>{Math.floor(voiceoverDuration / 2 / 60)}:{String(Math.floor(voiceoverDuration / 2) % 60).padStart(2, '0')}</span>
+              <span>{Math.floor(voiceoverDuration / 60)}:{String(Math.floor(voiceoverDuration) % 60).padStart(2, '0')}</span>
+            </div>
+          </div>
+          
+          <div style={{ 
+            padding: 'var(--spacing-sm)', 
+            background: 'var(--bg-secondary)', 
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: 'var(--spacing-sm)'
+          }}>
+            <p style={{ fontSize: '0.8125rem', marginBottom: 'var(--spacing-xs)' }}>
+              💡 Suggested: <strong>{suggestedDuration}s</strong> per {app.selectedFlow === 'multi-image' ? 'image' : 'video'} to evenly distribute across {Math.round(voiceoverDuration)}s audio
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleUniformDurationChange(suggestedDuration)}
+            >
+              Apply Suggestion
+            </Button>
+          </div>
+          
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Duration per {app.selectedFlow === 'multi-image' ? 'image' : 'video'}: <strong>{app.imageDuration}s</strong></label>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={app.imageDuration}
+              onChange={(e) => handleUniformDurationChange(parseInt(e.target.value))}
+            />
+          </div>
+          
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
+            <p>Assets: {imageCount} × {app.imageDuration}s = <strong>{totalAssetsDuration}s</strong> | Voiceover: <strong>{Math.round(voiceoverDuration)}s</strong></p>
+            
+            {!coversFullAudio && (
+              <p style={{ color: 'var(--warning)', marginTop: '4px' }}>
+                ⚠️ Last asset will extend to cover remaining {Math.round(voiceoverDuration - totalAssetsDuration)}s
+              </p>
+            )}
+          </div>
+          
+          <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-sm)', borderTop: '1px solid var(--glass-border)' }}>
+            <button
+              onClick={() => setShowAdvancedTimeline(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--primary)',
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                padding: 0,
+                textDecoration: 'underline'
+              }}
+            >
+              Need more control? Open Advanced Timeline Editor →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

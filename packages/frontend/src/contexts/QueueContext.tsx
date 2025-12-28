@@ -31,6 +31,15 @@ export interface QueuedProject {
         captionsEnabled: boolean;
         captionStyle: any;
         imageDuration?: number;
+        // Custom timeline data
+        useCustomTiming?: boolean;
+        timelineSlots?: Array<{
+            id: string;
+            type: 'image' | 'video';
+            assetUrl: string;
+            duration: number;
+            originalIndex?: number;
+        }>;
     };
 }
 
@@ -209,16 +218,34 @@ export function QueueProvider({ children }: { children: ReactNode }) {
                         request.imageUrl = item.state.imageUrl;
                     } else if (item.state.selectedFlow === 'multi-image') {
                         request.flowType = 'multi-image';
-                        request.images = item.state.images?.map(img => ({
-                            imageUrl: img.imageUrl,
-                            duration: item.state.imageDuration || img.duration,
-                        }));
+                        
+                        // Use custom timing if available
+                        if (item.state.useCustomTiming && item.state.timelineSlots?.length) {
+                            request.images = item.state.timelineSlots.map(slot => ({
+                                imageUrl: slot.assetUrl,
+                                duration: slot.duration,
+                            }));
+                        } else {
+                            request.images = item.state.images?.map(img => ({
+                                imageUrl: img.imageUrl,
+                                duration: item.state.imageDuration || img.duration,
+                            }));
+                        }
                     } else if (item.state.selectedFlow === 'stock-video') {
                         request.flowType = 'stock-video';
-                        request.videos = item.state.selectedVideos?.map((video: any) => ({
-                            videoUrl: normalizeUrl(video.url),
-                            duration: video.duration || undefined
-                        }));
+                        
+                        // Use custom timing if available
+                        if (item.state.useCustomTiming && item.state.timelineSlots?.length) {
+                            request.videos = item.state.timelineSlots.map(slot => ({
+                                videoUrl: normalizeUrl(slot.assetUrl),
+                                duration: slot.duration
+                            }));
+                        } else {
+                            request.videos = item.state.selectedVideos?.map((video: any) => ({
+                                videoUrl: normalizeUrl(video.url),
+                                duration: video.duration || undefined
+                            }));
+                        }
                     }
 
                     console.log(`[QueueEngine] Starting job for project: ${item.name}`);
