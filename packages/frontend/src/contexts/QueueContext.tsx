@@ -37,6 +37,7 @@ interface QueueContextType {
     updateProject: (id: string, updates: Partial<QueuedProject>) => void;
     removeFromQueue: (id: string) => void;
     clearCompleted: () => void;
+    clearAll: () => void;
     getProject: (id: string) => QueuedProject | undefined;
     canStartNew: boolean;
 }
@@ -134,6 +135,13 @@ export function QueueProvider({ children }: { children: ReactNode }) {
         setQueue(prev => prev.filter(p => p.status !== 'completed' && p.status !== 'failed'));
     }, []);
 
+    const clearAll = useCallback(() => {
+        setQueue([]);
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem(QUEUE_STORAGE_KEY);
+        }
+    }, []);
+
     const getProject = useCallback((id: string) => {
         return queue.find(p => p.id === id);
     }, [queue]);
@@ -146,6 +154,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
             updateProject,
             removeFromQueue,
             clearCompleted,
+            clearAll,
             getProject,
             canStartNew
         }}>

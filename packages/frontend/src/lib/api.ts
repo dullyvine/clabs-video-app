@@ -218,4 +218,26 @@ export const api = {
             method: 'POST',
             body: JSON.stringify(data),
         }),
+
+    // Storage cleanup
+    cleanupStorage: (): Promise<{
+        success: boolean;
+        message: string;
+        filesDeleted: number;
+        tempFilesDeleted: number;
+        uploadsDeleted: number;
+        jobsCleared: number;
+    }> =>
+        fetchAPI('/cleanup', {
+            method: 'POST',
+        }),
+
+    getStorageStats: (): Promise<{
+        tempCount: number;
+        uploadsCount: number;
+        totalSizeBytes: number;
+        activeJobs: number;
+        totalJobs: number;
+    }> =>
+        fetchAPI('/storage-stats'),
 };

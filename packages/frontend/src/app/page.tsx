@@ -24,9 +24,39 @@ import {
 
 export default function Home() {
   const app = useApp();
+  const { queue, clearAll: clearQueue } = useQueue();
+  const { showToast } = useToast();
+  const [isClearing, setIsClearing] = useState(false);
 
   const handleStartNewProject = () => {
     app.clearStorage();
+  };
+
+  const handleClearAllData = async () => {
+    if (isClearing) return;
+    
+    // Confirm if there are active jobs
+    const hasActiveJobs = queue.some(p => p.status === 'processing');
+    if (hasActiveJobs) {
+      const confirmed = window.confirm(
+        'You have videos currently being processed. Clearing all data will stop them. Continue?'
+      );
+      if (!confirmed) return;
+    }
+
+    setIsClearing(true);
+    try {
+      // Clear queue first
+      clearQueue();
+      // Clear all data (browser + server)
+      await app.clearAllData();
+      showToast('All temporary data cleared', 'success');
+    } catch (error) {
+      console.error('Failed to clear all data:', error);
+      showToast('Failed to clear server data, but browser data was cleared', 'warning');
+    } finally {
+      setIsClearing(false);
+    }
   };
 
   return (
@@ -38,14 +68,25 @@ export default function Home() {
           <h1><span className="app-logo">🎬</span> Video Generator</h1>
           <p className="subtitle">Transform scripts into YouTube videos with AI-powered voiceovers and visuals</p>
         </div>
-        <button
-          onClick={app.clearStorage}
-          className="clear-project-btn"
-          title="Clear project and start fresh"
-        >
-          <span>🗑️</span>
-          <span className="clear-project-text">New Project</span>
-        </button>
+        <div className="app-header-actions">
+          <button
+            onClick={app.clearStorage}
+            className="clear-project-btn"
+            title="Start a new project (keeps server files)"
+          >
+            <span>📝</span>
+            <span className="clear-project-text">New Project</span>
+          </button>
+          <button
+            onClick={handleClearAllData}
+            className="clear-all-btn"
+            title="Clear all temporary data (browser storage + server files)"
+            disabled={isClearing}
+          >
+            <span>{isClearing ? '⏳' : '🧹'}</span>
+            <span className="clear-project-text">{isClearing ? 'Clearing...' : 'Clear All Data'}</span>
+          </button>
+        </div>
       </header>
 
       <div className="wizard-container">

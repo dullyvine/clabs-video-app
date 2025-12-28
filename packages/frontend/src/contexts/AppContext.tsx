@@ -14,8 +14,10 @@ import {
     VideoQuality,
     CaptionStyle
 } from 'shared/src/types';
+import { api } from '@/lib/api';
 
 const STORAGE_KEY = 'clabs-video-app-state';
+const QUEUE_STORAGE_KEY = 'clabs-video-app-queue';
 const DEBOUNCE_MS = 500;
 
 type FlowType = 'single-image' | 'multi-image' | 'stock-video' | null;
@@ -77,6 +79,7 @@ interface AppContextType extends AppState {
     goToStep: (step: number) => void;
     resetApp: () => void;
     clearStorage: () => void;
+    clearAllData: () => Promise<void>;
     maxCompletedStep: number;
 }
 
@@ -208,6 +211,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         resetApp();
     }, [resetApp]);
 
+    /**
+     * Clear ALL temporary data - both browser storage and server-side temp files
+     * This is a comprehensive cleanup function
+     */
+    const clearAllData = useCallback(async () => {
+        // Clear browser storage first
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(QUEUE_STORAGE_KEY);
+        }
+        
+        // Reset app state
+        resetApp();
+
+        // Call backend to clean up server temp files
+        try {
+            await api.cleanupStorage();
+            console.log('[AppContext] Server temp files cleaned up');
+        } catch (error) {
+            console.warn('[AppContext] Failed to cleanup server files:', error);
+            // Don't throw - browser cleanup succeeded, server cleanup is best-effort
+        }
+    }, [resetApp]);
+
     return (
         <AppContext.Provider value={{ 
             ...state, 
@@ -217,6 +244,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             goToStep,
             resetApp, 
             clearStorage,
+            clearAllData,
             maxCompletedStep
         }}>
             {children}
