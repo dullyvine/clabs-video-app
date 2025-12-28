@@ -13,6 +13,7 @@ import { ScriptChat } from '@/components/ScriptChat';
 import { QueuePanel } from '@/components/QueuePanel';
 import { ImageEditModal } from '@/components/ImageEditModal';
 import { TimelineEditor, TimelineSlot as TimelineEditorSlot } from '@/components/TimelineEditor';
+import CaptionPreview from '@/components/CaptionPreview';
 import { api } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useQueue } from '@/contexts/QueueContext';
@@ -306,8 +307,10 @@ function ScriptVoiceoverStep() {
       
       const finalId = processLog.addEntry('Finalizing audio file...', 'in-progress');
       
+      const voiceoverUrl = 'http://localhost:3001' + result.audioUrl;
+      
       app.updateState({
-        voiceoverUrl: 'http://localhost:3001' + result.audioUrl,
+        voiceoverUrl,
         voiceoverDuration: result.duration,
       });
 
@@ -316,6 +319,29 @@ function ScriptVoiceoverStep() {
         message: `Audio ready (${result.duration.toFixed(1)}s)`,
         details: result.audioUrl
       });
+      
+      // Auto-transcribe for accurate captions (runs in background)
+      const transcribeId = processLog.addEntry('Transcribing audio for captions...', 'in-progress');
+      app.updateState({ isTranscribing: true });
+      
+      try {
+        const transcription = await api.transcribeAudio({ audioUrl: result.audioUrl });
+        app.updateState({ 
+          wordTimestamps: transcription.words,
+          isTranscribing: false 
+        });
+        processLog.updateEntry(transcribeId, { 
+          status: 'completed', 
+          message: `Transcribed ${transcription.words.length} words for accurate captions`
+        });
+      } catch (transcribeErr: any) {
+        console.warn('Transcription failed, will use estimated timing:', transcribeErr);
+        app.updateState({ isTranscribing: false });
+        processLog.updateEntry(transcribeId, { 
+          status: 'error', 
+          message: 'Transcription unavailable, using estimated timing'
+        });
+      }
       
       processLog.endProcess();
       toastSuccess('Voiceover generated successfully!');
@@ -1997,6 +2023,7 @@ function VideoGenerationStep() {
         captionsEnabled: app.captionsEnabled,
         captionStyle: app.captionStyle,
         imageDuration: app.imageDuration,
+        wordTimestamps: app.wordTimestamps, // Pass real timestamps for accurate captions
       };
 
       if (app.selectedFlow === 'single-image') {
@@ -2134,9 +2161,9 @@ function VideoGenerationStep() {
                     captionStyle: { ...app.captionStyle, fontSize: e.target.value as any } 
                   })}
                 >
-                  <option value="small">Small</option>
-                  <option value="medium">Medium</option>
-                  <option value="large">Large</option>
+                  <option value="small">Small (48px)</option>
+                  <option value="medium">Medium (64px)</option>
+                  <option value="large">Large (80px)</option>
                 </select>
               </div>
               <div>
@@ -2164,6 +2191,18 @@ function VideoGenerationStep() {
                 />
               </div>
             </div>
+          )}
+          
+          {/* Caption Preview */}
+          {app.captionsEnabled && (
+            <CaptionPreview
+              voiceoverUrl={app.voiceoverUrl}
+              voiceoverDuration={app.voiceoverDuration}
+              wordTimestamps={app.wordTimestamps}
+              captionStyle={app.captionStyle}
+              captionsEnabled={app.captionsEnabled}
+              script={app.script}
+            />
           )}
         </div>
       </details>

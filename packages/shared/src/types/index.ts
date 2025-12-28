@@ -171,6 +171,7 @@ interface BaseVideoRequest {
     captionsEnabled?: boolean;
     captionStyle?: CaptionStyle;
     script?: string; // Needed for generating captions
+    wordTimestamps?: WordTimestamp[]; // Real timestamps from transcription for accurate captions
 }
 
 export interface SingleImageVideoRequest extends BaseVideoRequest {
@@ -347,12 +348,37 @@ export interface CaptionRequest {
     script: string;
     voiceoverDuration: number;
     style?: CaptionStyle;
+    wordTimestamps?: WordTimestamp[]; // Use real timestamps if provided
 }
 
 export interface CaptionResponse {
     segments: CaptionSegment[];
     srtContent: string;
     assContent: string;
+}
+
+// Transcription types for accurate caption alignment
+export interface WordTimestamp {
+    word: string;
+    startTime: number;
+    endTime: number;
+    confidence: number;
+}
+
+export interface TranscriptionRequest {
+    audioUrl: string;
+}
+
+export interface TranscriptionResponse {
+    text: string;
+    words: WordTimestamp[];
+    duration: number;
+}
+
+export interface TranscriptionStatus {
+    modelLoaded: boolean;
+    modelPath: string;
+    modelExists: boolean;
 }
 
 // Image editing types (for Gemini native image generation)

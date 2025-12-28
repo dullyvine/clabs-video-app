@@ -31,6 +31,8 @@ export interface QueuedProject {
         captionsEnabled: boolean;
         captionStyle: any;
         imageDuration?: number;
+        // Transcription for accurate captions
+        wordTimestamps?: Array<{ word: string; startTime: number; endTime: number; confidence: number }>;
         // Custom timeline data
         useCustomTiming?: boolean;
         timelineSlots?: Array<{
@@ -211,6 +213,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
                         captionsEnabled: item.state.captionsEnabled,
                         captionStyle: item.state.captionStyle,
                         script: item.state.script,
+                        wordTimestamps: item.state.wordTimestamps, // Pass real timestamps for accurate captions
                     };
 
                     if (item.state.selectedFlow === 'single-image') {
