@@ -1620,10 +1620,13 @@ const VIDEO_QUALITY_OPTIONS = [
 function VideoGenerationStep() {
   const app = useApp();
   const { error: toastError, success: toastSuccess } = useToast();
+  const { addToQueue, queue } = useQueue();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [submittedToQueue, setSubmittedToQueue] = useState(false);
+  const [currentQueuedProjectId, setCurrentQueuedProjectId] = useState<string | null>(null);
   const processLog = useProcessLog();
   const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
 
@@ -1664,114 +1667,111 @@ function VideoGenerationStep() {
     return files;
   }, [app.voiceoverUrl, app.generatedImages, app.finalVideoUrl, app.selectedFlow, app.selectedVideos]);
 
+  // Track the current queued project's status
+  const currentQueuedProject = React.useMemo(() => {
+    if (!currentQueuedProjectId) return null;
+    return queue.find(p => p.id === currentQueuedProjectId);
+  }, [queue, currentQueuedProjectId]);
+
+  // Update progress from queue
+  React.useEffect(() => {
+    if (currentQueuedProject) {
+      setProgress(currentQueuedProject.progress);
+      if (currentQueuedProject.status === 'processing') {
+        const progressMessage = currentQueuedProject.progress < 30 
+          ? 'Preparing assets...' 
+          : currentQueuedProject.progress < 70 
+            ? 'Rendering video...' 
+            : 'Finalizing...';
+        setStatusMessage(progressMessage);
+      }
+      if (currentQueuedProject.status === 'completed' && currentQueuedProject.videoUrl) {
+        app.updateState({ finalVideoUrl: currentQueuedProject.videoUrl });
+        setLoading(false);
+        toastSuccess('Video generated successfully!');
+      }
+      if (currentQueuedProject.status === 'failed') {
+        setLoading(false);
+        toastError('Video generation failed: ' + currentQueuedProject.error);
+      }
+    }
+  }, [currentQueuedProject]);
+
   const handleGenerateVideo = async () => {
+    // Validate stock video selection
+    if (app.selectedFlow === 'stock-video' && !app.selectedVideos.length) {
+      toastError('Select at least one stock video before generating.');
+      return;
+    }
+
     setLoading(true);
     setProgress(0);
     processLog.startProcess();
     
-    const initId = processLog.addEntry('Initializing video generation...', 'in-progress');
-    
-    try {
-      // Prepare overlays
-      const overlaysForRequest = app.overlays.map(overlay => ({
-        id: overlay.id,
-        fileUrl: overlay.fileUrl.replace('http://localhost:3001', ''),
-        type: overlay.type,
-        blendMode: overlay.blendMode,
-        opacity: overlay.opacity ?? 1
-      }));
+    const initId = processLog.addEntry('Adding to processing queue...', 'in-progress');
 
-      let request: any = {
-        voiceoverUrl: app.voiceoverUrl!.replace('http://localhost:3001', ''),
-        voiceoverDuration: app.voiceoverDuration!,
-        overlays: overlaysForRequest,
-        // Caption settings
+    try {
+      // Create a project name based on script snippet
+      const projectName = app.script.slice(0, 30).trim() + (app.script.length > 30 ? '...' : '') || 'Untitled Video';
+
+      // Prepare the state snapshot for the queue
+      const queueState: any = {
+        script: app.script,
+        voiceoverUrl: app.voiceoverUrl,
+        voiceoverDuration: app.voiceoverDuration,
+        selectedFlow: app.selectedFlow,
+        overlays: app.overlays,
+        videoQuality: app.videoQuality,
         captionsEnabled: app.captionsEnabled,
         captionStyle: app.captionStyle,
-        script: app.script, // Needed for generating captions
+        imageDuration: app.imageDuration,
       };
 
-      const normalizeAssetUrl = (url: string) =>
-        url.startsWith('http://localhost:3001') ? url.replace('http://localhost:3001', '') : url;
-
-      processLog.updateEntry(initId, { status: 'completed', message: 'Initialization complete' });
-      
-      const prepId = processLog.addEntry('Preparing assets...', 'in-progress');
-
       if (app.selectedFlow === 'single-image') {
-        request.flowType = 'single-image';
-        request.imageUrl = app.generatedImages[0].imageUrl;
-        processLog.updateEntry(prepId, { status: 'completed', message: 'Single image flow prepared' });
+        queueState.imageUrl = app.generatedImages[0]?.imageUrl;
       } else if (app.selectedFlow === 'multi-image') {
-        request.flowType = 'multi-image';
-        request.images = app.generatedImages.map(img => ({
+        queueState.images = app.generatedImages.map(img => ({
           imageUrl: img.imageUrl,
           duration: app.imageDuration,
         }));
-        processLog.updateEntry(prepId, { status: 'completed', message: `${app.generatedImages.length} images prepared` });
       } else if (app.selectedFlow === 'stock-video') {
-        if (!app.selectedVideos.length) {
-          toastError('Select at least one stock video before generating.');
-          setLoading(false);
-          processLog.addEntry('No stock videos selected', 'error');
-          processLog.endProcess();
-          return;
-        }
-        request.flowType = 'stock-video';
-        request.videos = app.selectedVideos.map(video => ({
-          videoUrl: normalizeAssetUrl(video.url),
-          duration: video.duration || undefined
+        queueState.selectedVideos = app.selectedVideos.map(video => ({
+          id: video.id,
+          url: video.url,
+          duration: video.duration
         }));
-        processLog.updateEntry(prepId, { status: 'completed', message: `${app.selectedVideos.length} stock videos prepared` });
       }
 
-      const submitId = processLog.addEntry('Submitting to video processor...', 'in-progress');
-      
-      const result = await api.generateVideo(request);
-      app.updateState({ videoJobId: result.jobId });
-      
-      processLog.updateEntry(submitId, { status: 'completed', message: `Job ID: ${result.jobId}` });
-      
-      const renderingId = processLog.addEntry('Rendering video with FFmpeg...', 'in-progress');
+      // Add to queue - the QueueContext will handle starting the job
+      const projectId = addToQueue({
+        name: projectName,
+        state: queueState
+      });
 
-      // Poll for progress
-      const pollInterval = setInterval(async () => {
-        const status = await api.checkVideoStatus(result.jobId);
-        setProgress(status.progress);
-        
-        // Use progress to determine status message
-        const progressMessage = status.progress < 30 
-          ? 'Preparing assets...' 
-          : status.progress < 70 
-            ? 'Rendering video...' 
-            : 'Finalizing...';
-        setStatusMessage(progressMessage);
-
-        if (status.status === 'completed') {
-          clearInterval(pollInterval);
-          processLog.updateEntry(renderingId, { status: 'completed', message: 'Video rendering complete' });
-          processLog.addEntry('Video ready for download!', 'completed');
-          processLog.endProcess();
-          
-          app.updateState({ finalVideoUrl: 'http://localhost:3001' + status.videoUrl });
-          setLoading(false);
-          toastSuccess('Video generated successfully!');
-        } else if (status.status === 'failed') {
-          clearInterval(pollInterval);
-          processLog.updateEntry(renderingId, { status: 'error', message: 'Rendering failed' });
-          processLog.addEntry(`Error: ${status.error}`, 'error');
-          processLog.endProcess();
-          
-          toastError('Video generation failed: ' + status.error);
-          setLoading(false);
-        }
-      }, 1000);
+      setCurrentQueuedProjectId(projectId);
+      setSubmittedToQueue(true);
+      
+      processLog.updateEntry(initId, { status: 'completed', message: 'Added to queue' });
+      processLog.addEntry('Video is now processing in background...', 'in-progress');
+      
+      toastSuccess('Video added to queue! You can start a new project while this one renders.');
     } catch (err: any) {
       processLog.addEntry(`Error: ${err.message}`, 'error');
       processLog.endProcess();
       toastError('Error: ' + err.message);
       setLoading(false);
     }
+  };
+
+  const handleStartNewProject = () => {
+    // Reset the current view state but keep the queue running
+    setSubmittedToQueue(false);
+    setCurrentQueuedProjectId(null);
+    setLoading(false);
+    setProgress(0);
+    processLog.clearLog();
+    // Clear the app state to start fresh
+    app.resetApp();
   };
 
   return (
@@ -1967,17 +1967,25 @@ function VideoGenerationStep() {
       />
 
       {/* Video Generation Section */}
-      {loading ? (
+      {loading || (submittedToQueue && currentQueuedProject?.status === 'processing') ? (
         <div style={{ padding: 'var(--spacing-lg)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
           <ProgressBar progress={progress} label={statusMessage || 'Generating video...'} />
           <div style={{ textAlign: 'center', marginTop: 'var(--spacing-md)' }}>
             <LoadingSpinner size="sm" />
             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-sm)' }}>
-              This may take a few minutes depending on video length...
+              Video is rendering in the background...
+            </p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: 'var(--spacing-xs)' }}>
+              You can start a new project while this one processes. Check the queue panel for progress.
             </p>
           </div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-lg)' }}>
+            <Button onClick={handleStartNewProject} variant="primary">
+              🎬 Start New Project
+            </Button>
+          </div>
         </div>
-      ) : app.finalVideoUrl ? (
+      ) : app.finalVideoUrl || (currentQueuedProject?.status === 'completed' && currentQueuedProject.videoUrl) ? (
         <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ padding: 'var(--spacing-md)', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '0.9375rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
@@ -1985,7 +1993,7 @@ function VideoGenerationStep() {
             </span>
             <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
               <DownloadButton 
-                url={app.finalVideoUrl}
+                url={app.finalVideoUrl || currentQueuedProject?.videoUrl || ''}
                 filename="generated-video.mp4"
                 label="Download Video"
                 variant="primary"
@@ -1995,7 +2003,7 @@ function VideoGenerationStep() {
           </div>
           <video 
             controls 
-            src={app.finalVideoUrl} 
+            src={app.finalVideoUrl || currentQueuedProject?.videoUrl} 
             style={{ width: '100%', maxHeight: '400px', display: 'block' }}
           />
           <div style={{ padding: 'var(--spacing-md)', display: 'flex', gap: 'var(--spacing-sm)', flexWrap: 'wrap' }}>
@@ -2003,13 +2011,40 @@ function VideoGenerationStep() {
               variant="secondary"
               onClick={() => {
                 app.updateState({ finalVideoUrl: null, videoJobId: null });
+                setSubmittedToQueue(false);
+                setCurrentQueuedProjectId(null);
                 processLog.clearLog();
               }}
             >
               🔄 Regenerate Video
             </Button>
             <div style={{ flex: 1 }} />
-            <Button onClick={app.resetApp}>
+            <Button onClick={handleStartNewProject}>
+              Start New Project
+            </Button>
+          </div>
+        </div>
+      ) : submittedToQueue && currentQueuedProject?.status === 'failed' ? (
+        <div style={{ padding: 'var(--spacing-lg)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ fontSize: '2rem' }}>❌</span>
+            <h3 style={{ marginTop: 'var(--spacing-sm)', color: 'var(--error)' }}>Video Generation Failed</h3>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
+              {currentQueuedProject.error || 'An unknown error occurred'}
+            </p>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 'var(--spacing-sm)', marginTop: 'var(--spacing-lg)' }}>
+            <Button 
+              variant="secondary" 
+              onClick={() => {
+                setSubmittedToQueue(false);
+                setCurrentQueuedProjectId(null);
+                processLog.clearLog();
+              }}
+            >
+              Try Again
+            </Button>
+            <Button onClick={handleStartNewProject}>
               Start New Project
             </Button>
           </div>

@@ -1,9 +1,11 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
+import { api } from '@/lib/api';
 
 const QUEUE_STORAGE_KEY = 'clabs-video-app-queue';
 const MAX_CONCURRENT = 4;
+const POLL_INTERVAL = 2000; // Poll every 2 seconds
 
 export interface QueuedProject {
     id: string;
@@ -23,10 +25,12 @@ export interface QueuedProject {
         imageUrl?: string;
         images?: Array<{ imageUrl: string; duration: number }>;
         videos?: Array<{ videoUrl: string; duration?: number }>;
+        selectedVideos?: Array<{ id: string; url: string; duration?: number }>;
         overlays: any[];
         videoQuality: string;
         captionsEnabled: boolean;
         captionStyle: any;
+        imageDuration?: number;
     };
 }
 
@@ -73,11 +77,23 @@ function saveQueueToStorage(queue: QueuedProject[]) {
 export function QueueProvider({ children }: { children: ReactNode }) {
     const [queue, setQueue] = useState<QueuedProject[]>([]);
     const [isHydrated, setIsHydrated] = useState(false);
+    // Track which jobs are currently being started to avoid duplicate API calls
+    const startingJobsRef = useRef<Set<string>>(new Set());
+    // Track which jobs are currently being polled
+    const pollingJobsRef = useRef<Set<string>>(new Set());
 
     // Load queue from localStorage on mount
     useEffect(() => {
         const stored = loadQueueFromStorage();
-        setQueue(stored);
+        // Reset any "processing" jobs without jobId to "queued" on reload
+        // (they were interrupted before the API call completed)
+        const fixedQueue = stored.map(p => {
+            if (p.status === 'processing' && !p.jobId) {
+                return { ...p, status: 'queued' as const };
+            }
+            return p;
+        });
+        setQueue(fixedQueue);
         setIsHydrated(true);
     }, []);
 
@@ -145,6 +161,168 @@ export function QueueProvider({ children }: { children: ReactNode }) {
     const getProject = useCallback((id: string) => {
         return queue.find(p => p.id === id);
     }, [queue]);
+
+    // ========== BACKGROUND PROCESSING ENGINE ==========
+    // This effect runs continuously and handles:
+    // 1. Starting new jobs for items marked as 'processing' that don't have a jobId yet
+    // 2. Polling the backend for progress on jobs that are in progress
+    useEffect(() => {
+        if (!isHydrated) return;
+
+        const processQueue = async () => {
+            // 1. Start new jobs for items that need to be started
+            const itemsToStart = queue.filter(
+                p => p.status === 'processing' && !p.jobId && !startingJobsRef.current.has(p.id)
+            );
+
+            for (const item of itemsToStart) {
+                startingJobsRef.current.add(item.id);
+                
+                try {
+                    // Normalize URLs (remove localhost prefix for backend)
+                    const normalizeUrl = (url: string) =>
+                        url?.startsWith('http://localhost:3001') 
+                            ? url.replace('http://localhost:3001', '') 
+                            : url;
+
+                    // Prepare overlays
+                    const overlaysForRequest = (item.state.overlays || []).map((overlay: any) => ({
+                        id: overlay.id,
+                        fileUrl: normalizeUrl(overlay.fileUrl),
+                        type: overlay.type,
+                        blendMode: overlay.blendMode,
+                        opacity: overlay.opacity ?? 1
+                    }));
+
+                    // Build the request based on flow type
+                    let request: any = {
+                        voiceoverUrl: normalizeUrl(item.state.voiceoverUrl || ''),
+                        voiceoverDuration: item.state.voiceoverDuration!,
+                        overlays: overlaysForRequest,
+                        captionsEnabled: item.state.captionsEnabled,
+                        captionStyle: item.state.captionStyle,
+                        script: item.state.script,
+                    };
+
+                    if (item.state.selectedFlow === 'single-image') {
+                        request.flowType = 'single-image';
+                        request.imageUrl = item.state.imageUrl;
+                    } else if (item.state.selectedFlow === 'multi-image') {
+                        request.flowType = 'multi-image';
+                        request.images = item.state.images?.map(img => ({
+                            imageUrl: img.imageUrl,
+                            duration: item.state.imageDuration || img.duration,
+                        }));
+                    } else if (item.state.selectedFlow === 'stock-video') {
+                        request.flowType = 'stock-video';
+                        request.videos = item.state.selectedVideos?.map((video: any) => ({
+                            videoUrl: normalizeUrl(video.url),
+                            duration: video.duration || undefined
+                        }));
+                    }
+
+                    console.log(`[QueueEngine] Starting job for project: ${item.name}`);
+                    const result = await api.generateVideo(request);
+                    
+                    // Update the project with the jobId
+                    setQueue(prev => prev.map(p => 
+                        p.id === item.id ? { ...p, jobId: result.jobId } : p
+                    ));
+                    console.log(`[QueueEngine] Job started: ${result.jobId}`);
+                } catch (error: any) {
+                    console.error(`[QueueEngine] Failed to start job for ${item.name}:`, error);
+                    setQueue(prev => prev.map(p => 
+                        p.id === item.id 
+                            ? { ...p, status: 'failed' as const, error: error.message } 
+                            : p
+                    ));
+                } finally {
+                    startingJobsRef.current.delete(item.id);
+                }
+            }
+
+            // 2. Poll for progress on active jobs
+            const itemsToPoll = queue.filter(
+                p => p.status === 'processing' && p.jobId && !pollingJobsRef.current.has(p.id)
+            );
+
+            for (const item of itemsToPoll) {
+                pollingJobsRef.current.add(item.id);
+                
+                try {
+                    const status = await api.checkVideoStatus(item.jobId!);
+                    
+                    if (status.status === 'completed') {
+                        console.log(`[QueueEngine] Job completed: ${item.jobId}`);
+                        setQueue(prev => {
+                            const updated = prev.map(p => 
+                                p.id === item.id 
+                                    ? { 
+                                        ...p, 
+                                        status: 'completed' as const, 
+                                        progress: 100,
+                                        videoUrl: 'http://localhost:3001' + status.videoUrl 
+                                    } 
+                                    : p
+                            );
+                            // Check if we can start a queued job
+                            const processingCount = updated.filter(p => p.status === 'processing').length;
+                            if (processingCount < MAX_CONCURRENT) {
+                                const nextQueued = updated.find(p => p.status === 'queued');
+                                if (nextQueued) {
+                                    return updated.map(p => 
+                                        p.id === nextQueued.id 
+                                            ? { ...p, status: 'processing' as const } 
+                                            : p
+                                    );
+                                }
+                            }
+                            return updated;
+                        });
+                    } else if (status.status === 'failed') {
+                        console.error(`[QueueEngine] Job failed: ${item.jobId}`, status.error);
+                        setQueue(prev => {
+                            const updated = prev.map(p => 
+                                p.id === item.id 
+                                    ? { ...p, status: 'failed' as const, error: status.error } 
+                                    : p
+                            );
+                            // Check if we can start a queued job
+                            const processingCount = updated.filter(p => p.status === 'processing').length;
+                            if (processingCount < MAX_CONCURRENT) {
+                                const nextQueued = updated.find(p => p.status === 'queued');
+                                if (nextQueued) {
+                                    return updated.map(p => 
+                                        p.id === nextQueued.id 
+                                            ? { ...p, status: 'processing' as const } 
+                                            : p
+                                    );
+                                }
+                            }
+                            return updated;
+                        });
+                    } else {
+                        // Still processing - update progress
+                        setQueue(prev => prev.map(p => 
+                            p.id === item.id ? { ...p, progress: status.progress } : p
+                        ));
+                    }
+                } catch (error: any) {
+                    console.error(`[QueueEngine] Failed to poll job ${item.jobId}:`, error);
+                    // Don't mark as failed on poll error - might be temporary network issue
+                } finally {
+                    pollingJobsRef.current.delete(item.id);
+                }
+            }
+        };
+
+        // Run immediately
+        processQueue();
+        
+        // Then run on interval
+        const interval = setInterval(processQueue, POLL_INTERVAL);
+        return () => clearInterval(interval);
+    }, [queue, isHydrated]);
 
     return (
         <QueueContext.Provider value={{
