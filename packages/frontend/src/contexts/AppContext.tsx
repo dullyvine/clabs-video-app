@@ -14,7 +14,8 @@ import {
     VideoQuality,
     CaptionStyle,
     ChatMessage,
-    TimelineSlot
+    TimelineSlot,
+    WordTimestamp
 } from 'shared/src/types';
 import { api } from '@/lib/api';
 
@@ -80,6 +81,10 @@ interface AppState {
     // Captions
     captionsEnabled: boolean;
     captionStyle: CaptionStyle;
+    
+    // Transcription for accurate captions
+    wordTimestamps: WordTimestamp[];
+    isTranscribing: boolean;
 }
 
 interface AppContextType extends AppState {
@@ -130,6 +135,8 @@ const initialState: AppState = {
         position: 'bottom',
         fontFamily: 'Arial'
     },
+    wordTimestamps: [],
+    isTranscribing: false,
 };
 
 const AppContext = createContext<AppContextType | undefined>(undefined);

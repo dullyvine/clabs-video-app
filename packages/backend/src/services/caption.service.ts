@@ -6,7 +6,8 @@ import {
     CaptionStyle, 
     CaptionRequest, 
     CaptionResponse,
-    CaptionWord 
+    CaptionWord,
+    WordTimestamp
 } from 'shared/src/types';
 import { getTempFilePath } from './file.service';
 
@@ -15,14 +16,23 @@ const genAI = process.env.GEMINI_API_KEY
     : null;
 
 /**
- * Generate word-level timestamps for captions using Gemini
- * This is a lightweight approach - estimates timing based on script structure
+ * Generate captions with word-level timestamps
+ * If wordTimestamps are provided (from transcription), uses those for accurate alignment
+ * Otherwise falls back to estimation based on script structure
  */
 export async function generateCaptions(request: CaptionRequest): Promise<CaptionResponse> {
-    const { script, voiceoverDuration, style } = request;
+    const { script, voiceoverDuration, style, wordTimestamps } = request;
 
-    // Generate segments using intelligent text splitting
-    const segments = generateSegmentsFromScript(script, voiceoverDuration);
+    // Use real timestamps if provided, otherwise estimate
+    let segments: CaptionSegment[];
+    
+    if (wordTimestamps && wordTimestamps.length > 0) {
+        console.log('[Caption] Using real transcription timestamps for accurate alignment');
+        segments = generateSegmentsFromTranscription(wordTimestamps, voiceoverDuration);
+    } else {
+        console.log('[Caption] No transcription provided, using estimated timing');
+        segments = generateSegmentsFromScript(script, voiceoverDuration);
+    }
     
     // Generate SRT content
     const srtContent = generateSRT(segments);
@@ -35,6 +45,76 @@ export async function generateCaptions(request: CaptionRequest): Promise<Caption
         srtContent,
         assContent
     };
+}
+
+/**
+ * Generate caption segments from real transcription timestamps
+ * Groups words into readable segments (max ~8 words per segment)
+ */
+function generateSegmentsFromTranscription(
+    wordTimestamps: WordTimestamp[], 
+    totalDuration: number
+): CaptionSegment[] {
+    const segments: CaptionSegment[] = [];
+    const MAX_WORDS_PER_SEGMENT = 5;
+    const MAX_CHARS_PER_SEGMENT = 40;
+    const PAUSE_THRESHOLD = 0.4; // Split on pauses longer than 400ms (natural sentence breaks)
+    
+    let currentWords: WordTimestamp[] = [];
+    let currentText = '';
+    
+    for (const wordTs of wordTimestamps) {
+        const potentialText = currentText ? `${currentText} ${wordTs.word}` : wordTs.word;
+        
+        // Check for natural pause (gap between last word end and current word start)
+        const lastWord = currentWords[currentWords.length - 1];
+        const hasPause = lastWord && (wordTs.startTime - lastWord.endTime) > PAUSE_THRESHOLD;
+        
+        // Check if we should start a new segment
+        const shouldSplit = 
+            currentWords.length >= MAX_WORDS_PER_SEGMENT ||
+            potentialText.length >= MAX_CHARS_PER_SEGMENT ||
+            hasPause ||  // Split on natural pauses (sentence boundaries)
+            // Split on sentence-ending punctuation
+            /[.!?]$/.test(currentText);
+        
+        if (shouldSplit && currentWords.length > 0) {
+            // Finalize current segment
+            segments.push({
+                text: currentText,
+                startTime: currentWords[0].startTime,
+                endTime: currentWords[currentWords.length - 1].endTime,
+                words: currentWords.map(w => ({
+                    word: w.word,
+                    startTime: w.startTime,
+                    endTime: w.endTime
+                }))
+            });
+            
+            // Start new segment
+            currentWords = [wordTs];
+            currentText = wordTs.word;
+        } else {
+            currentWords.push(wordTs);
+            currentText = potentialText;
+        }
+    }
+    
+    // Don't forget the last segment
+    if (currentWords.length > 0) {
+        segments.push({
+            text: currentText,
+            startTime: currentWords[0].startTime,
+            endTime: currentWords[currentWords.length - 1].endTime,
+            words: currentWords.map(w => ({
+                word: w.word,
+                startTime: w.startTime,
+                endTime: w.endTime
+            }))
+        });
+    }
+    
+    return segments;
 }
 
 /**
@@ -163,6 +243,7 @@ function formatSRTTime(seconds: number): string {
 
 /**
  * Generate ASS subtitle format with styling
+ * Font sizes are calibrated for 1920x1080 video output
  */
 function generateASS(segments: CaptionSegment[], style?: CaptionStyle): string {
     const captionStyle = style || {
@@ -176,15 +257,21 @@ function generateASS(segments: CaptionSegment[], style?: CaptionStyle): string {
     const primaryColor = hexToBGR(captionStyle.color);
     const outlineColor = hexToBGR(captionStyle.backgroundColor || '#000000');
     
-    const fontSize = captionStyle.fontSize === 'small' ? 18 
-        : captionStyle.fontSize === 'large' ? 28 
-        : 22;
+    // Larger font sizes for better readability at 1080p
+    // These match the preview component exactly
+    const fontSize = captionStyle.fontSize === 'small' ? 48 
+        : captionStyle.fontSize === 'large' ? 80 
+        : 64; // medium
     
     const alignment = captionStyle.position === 'top' ? 8 
         : captionStyle.position === 'center' ? 5 
         : 2;
     
     const fontFamily = captionStyle.fontFamily || 'Arial';
+    
+    // Outline thickness scales with font size
+    const outlineSize = Math.round(fontSize / 16);
+    const shadowSize = Math.round(fontSize / 32);
     
     const header = `[Script Info]
 Title: Generated Captions
@@ -197,7 +284,7 @@ PlayResY: 1080
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,${fontFamily},${fontSize},&H00${primaryColor},&H00${primaryColor},&H00${outlineColor},&H80${outlineColor},-1,0,0,0,100,100,0,0,1,2,1,${alignment},50,50,30,1
+Style: Default,${fontFamily},${fontSize},&H00${primaryColor},&H00${primaryColor},&H00${outlineColor},&H80${outlineColor},-1,0,0,0,100,100,0,0,1,${outlineSize},${shadowSize},${alignment},50,50,50,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

@@ -17,7 +17,10 @@ import {
     ScriptGenerationResponse,
     SmartChatRequest,
     SmartChatResponse,
-    ChatModelsResponse
+    ChatModelsResponse,
+    TranscriptionRequest,
+    TranscriptionResponse,
+    TranscriptionStatus
 } from 'shared/src/types';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -46,6 +49,17 @@ export const api = {
             method: 'POST',
             body: JSON.stringify(data),
         }),
+
+    // Transcribe audio for accurate caption alignment
+    transcribeAudio: (data: TranscriptionRequest): Promise<TranscriptionResponse> =>
+        fetchAPI('/voiceover/transcribe', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
+    // Get transcription model status
+    getTranscriptionStatus: (): Promise<TranscriptionStatus> =>
+        fetchAPI('/voiceover/transcription-status'),
 
     // Generate a short voice preview sample
     previewVoice: (data: { voiceService: string; voiceId: string; model?: string }): Promise<VoiceoverResponse> =>
