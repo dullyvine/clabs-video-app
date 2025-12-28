@@ -35,8 +35,21 @@ export function ScriptChat({
     const [lastResponse, setLastResponse] = useState<SmartChatResponse | null>(null);
     const [showScriptPreview, setShowScriptPreview] = useState(false);
     const [scriptToPreview, setScriptToPreview] = useState<{ content: string; wordCount: number } | null>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Simple markdown-like formatting for chat messages
+    const formatMessage = (text: string) => {
+        // Remove asterisks used for bold/emphasis and just show clean text
+        let formatted = text
+            .replace(/\*\*\*(.+?)\*\*\*/g, '$1')  // Remove ***bold italic***
+            .replace(/\*\*(.+?)\*\*/g, '$1')      // Remove **bold**
+            .replace(/\*(.+?)\*/g, '$1')          // Remove *italic*
+            .replace(/\_\_(.+?)\_\_/g, '$1')      // Remove __underline__
+            .replace(/\_(.+?)\_/g, '$1');          // Remove _italic_
+        return formatted;
+    };
 
     // Get current model definition
     const currentModel = models.find(m => m.id === model);
@@ -206,7 +219,7 @@ export function ScriptChat({
     };
 
     return (
-        <div className="script-chat">
+        <div className={`script-chat ${isExpanded ? 'expanded' : ''}`}>
             {/* Header */}
             <div className="script-chat-header">
                 <div className="script-chat-title-area">
@@ -224,54 +237,62 @@ export function ScriptChat({
                     )}
                 </div>
                 <div className="script-chat-controls">
-                    <select
-                        value={model}
-                        onChange={(e) => {
-                            setModel(e.target.value);
-                            // Reset search toggle if new model doesn't support it
-                            const newModel = models.find(m => m.id === e.target.value);
-                            if (!newModel?.supportsSearch) {
-                                setUseSearch(false);
-                            }
-                        }}
-                        className="script-chat-model-select"
-                        title={currentModel?.description || 'Select a model'}
-                    >
-                        {/* Group models by provider */}
-                        {models.filter(m => m.provider === 'gemini').length > 0 && (
-                            <optgroup label="Google Gemini">
-                                {models.filter(m => m.provider === 'gemini').map(m => (
-                                    <option key={m.id} value={m.id}>
-                                        {m.name} {m.supportsSearch ? '(search)' : ''}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                        {models.filter(m => m.provider === 'openrouter').length > 0 && (
-                            <optgroup label="OpenRouter">
-                                {models.filter(m => m.provider === 'openrouter').map(m => (
-                                    <option key={m.id} value={m.id}>
-                                        {m.name} {m.supportsSearch ? '(search)' : ''}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        )}
-                    </select>
-                    {/* Search toggle - only show if model supports it */}
-                    {currentModel?.supportsSearch && (
-                        <button
-                            onClick={() => setUseSearch(!useSearch)}
-                            className={`script-chat-search-toggle ${useSearch ? 'active' : ''}`}
-                            title={useSearch ? 'Web search enabled - click to disable' : 'Enable web search for current information'}
+                    <div className="script-chat-model-selector">
+                        <select
+                            value={model}
+                            onChange={(e) => {
+                                setModel(e.target.value);
+                                // Reset search toggle if new model doesn't support it
+                                const newModel = models.find(m => m.id === e.target.value);
+                                if (!newModel?.supportsSearch) {
+                                    setUseSearch(false);
+                                }
+                            }}
+                            className="script-chat-model-select"
+                            title={currentModel?.description || 'Select a model'}
                         >
-                            Search
-                        </button>
-                    )}
+                            {/* Group models by provider */}
+                            {models.filter(m => m.provider === 'gemini').length > 0 && (
+                                <optgroup label="Gemini">
+                                    {models.filter(m => m.provider === 'gemini').map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.name}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
+                            {models.filter(m => m.provider === 'openrouter').length > 0 && (
+                                <optgroup label="OpenRouter">
+                                    {models.filter(m => m.provider === 'openrouter').map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.name}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
+                        </select>
+                        {currentModel?.supportsSearch && (
+                            <button
+                                onClick={() => setUseSearch(!useSearch)}
+                                className={`script-chat-search-btn ${useSearch ? 'active' : ''}`}
+                                title={useSearch ? 'Web search enabled' : 'Enable web search'}
+                            >
+                                🔍
+                            </button>
+                        )}
+                    </div>
                     {messages.length > 0 && (
                         <button onClick={clearChat} className="script-chat-clear" title="Clear chat">
                             Clear
                         </button>
                     )}
+                    <button 
+                        onClick={() => setIsExpanded(!isExpanded)} 
+                        className="script-chat-expand-btn"
+                        title={isExpanded ? 'Minimize' : 'Expand'}
+                    >
+                        {isExpanded ? '⊟' : '⊞'}
+                    </button>
                 </div>
             </div>
 
@@ -335,7 +356,7 @@ export function ScriptChat({
                                 className={`script-chat-message ${msg.role}`}
                             >
                                 <div className="script-chat-message-content">
-                                    {msg.content}
+                                    {formatMessage(msg.content)}
                                 </div>
                                 {msg.role === 'assistant' && (
                                     <div className="script-chat-message-footer">
