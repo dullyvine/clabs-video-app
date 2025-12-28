@@ -15,7 +15,9 @@ import {
     ChatResponse,
     ScriptGenerationRequest,
     ScriptGenerationResponse,
-    GeminiChatModel
+    SmartChatRequest,
+    SmartChatResponse,
+    ChatModelsResponse
 } from 'shared/src/types';
 
 const API_BASE = 'http://localhost:3001/api';
@@ -62,8 +64,14 @@ export const api = {
     },
 
     // Images
+    getImageServiceStatus: (): Promise<{ openrouter: boolean; gemini: boolean; available: string[] }> =>
+        fetchAPI('/images/status'),
+
     listImageModels: (service: string): Promise<any[]> =>
         fetchAPI(`/images/models?service=${service}`),
+
+    listImageEditModels: (): Promise<{ models: Array<{ id: string; name: string; provider: string; description: string; supportsAspectRatio: boolean }> }> =>
+        fetchAPI('/images/edit-models'),
 
     generateImagePrompts: (data: ImagePromptRequest): Promise<ImagePromptResponse> =>
         fetchAPI('/images/prompts', {
@@ -103,6 +111,23 @@ export const api = {
 
         return response.json();
     },
+
+    // Edit image using Gemini's native image editing
+    editImage: (data: {
+        imageUrl: string;
+        editPrompt: string;
+        model?: string;
+        aspectRatio?: string;
+    }): Promise<{
+        imageUrl: string;
+        imageId: string;
+        model: string;
+        originalImageUrl: string;
+    }> =>
+        fetchAPI('/images/edit', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
 
     // Stock Videos
     analyzeForStockVideos: (data: StockVideoRequest): Promise<StockVideoResponse> =>
@@ -144,7 +169,7 @@ export const api = {
     },
 
     // Chat / Script Writing
-    listChatModels: (): Promise<{ models: Array<{ id: GeminiChatModel; name: string; description: string }> }> =>
+    listChatModels: (): Promise<ChatModelsResponse> =>
         fetchAPI('/chat/models'),
 
     sendChatMessage: (data: ChatRequest): Promise<ChatResponse> =>
@@ -159,11 +184,18 @@ export const api = {
             body: JSON.stringify(data),
         }),
 
+    // Smart chat with intent detection and word count extraction
+    smartChat: (data: SmartChatRequest): Promise<SmartChatResponse> =>
+        fetchAPI('/chat/smart-message', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        }),
+
     refineImagePrompt: (data: {
         prompt: string;
         scriptContext?: string;
         niche?: string;
-        model?: GeminiChatModel;
+        model?: string;
     }): Promise<{ refinedPrompt: string }> =>
         fetchAPI('/chat/refine-prompt', {
             method: 'POST',

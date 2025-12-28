@@ -11,6 +11,8 @@ import { DownloadButton, DownloadAllButton } from '@/components/ui/DownloadButto
 import { OverlayManager } from '@/components/OverlayManager';
 import { ScriptChat } from '@/components/ScriptChat';
 import { QueuePanel } from '@/components/QueuePanel';
+import { ImageEditModal } from '@/components/ImageEditModal';
+import { TimelineEditor, TimelineSlot as TimelineEditorSlot } from '@/components/TimelineEditor';
 import { api } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useQueue } from '@/contexts/QueueContext';
@@ -19,7 +21,8 @@ import {
   StockVideoAsset,
   StockVideoOrientation,
   StockVideoProvider,
-  StockVideoSlot
+  StockVideoSlot,
+  TimelineSlot
 } from 'shared/src/types';
 
 export default function Home() {
@@ -65,7 +68,7 @@ export default function Home() {
       <QueuePanel onStartNew={handleStartNewProject} />
       <header className="app-header">
         <div className="app-header-content">
-          <h1><span className="app-logo">🎬</span> Video Generator</h1>
+          <h1>Video Generator</h1>
           <p className="subtitle">Transform scripts into YouTube videos with AI-powered voiceovers and visuals</p>
         </div>
         <div className="app-header-actions">
@@ -74,7 +77,6 @@ export default function Home() {
             className="clear-project-btn"
             title="Start a new project (keeps server files)"
           >
-            <span>📝</span>
             <span className="clear-project-text">New Project</span>
           </button>
           <button
@@ -83,7 +85,6 @@ export default function Home() {
             title="Clear all temporary data (browser storage + server files)"
             disabled={isClearing}
           >
-            <span>{isClearing ? '⏳' : '🧹'}</span>
             <span className="clear-project-text">{isClearing ? 'Clearing...' : 'Clear All Data'}</span>
           </button>
         </div>
@@ -192,7 +193,7 @@ function VoicePreviewButton({ voiceId, voiceService, geminiModel }: { voiceId: s
         variant="secondary"
         style={{ minWidth: '100px' }}
       >
-        {loading ? '...' : '🔊 Preview'}
+        {loading ? '...' : 'Preview'}
       </Button>
       {previewUrl && (
         <audio 
@@ -219,12 +220,31 @@ function ScriptVoiceoverStep() {
     age: ''
   });
   const [showAIWriter, setShowAIWriter] = useState(false);
+  const [isScriptExpanded, setIsScriptExpanded] = useState(false);
   const processLog = useProcessLog();
+  const scriptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  const handleUseAIScript = (script: string) => {
+  // Handle script from AI chat - with smooth transition
+  const handleUseAIScript = (script: string, wordCount: number) => {
     app.updateState({ script });
     setShowAIWriter(false);
-    toastSuccess('Script loaded! You can now generate a voiceover.');
+    toastSuccess(`Script loaded! (${wordCount} words) Now select a voice to generate voiceover.`);
+    
+    // Auto-scroll to script textarea after a short delay
+    setTimeout(() => {
+      scriptTextareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      scriptTextareaRef.current?.focus();
+    }, 100);
+  };
+
+  // Handle chat history changes - persist to app state
+  const handleChatHistoryChange = (messages: any[]) => {
+    app.updateState({ chatHistory: messages });
+  };
+
+  // Handle word count changes from chat
+  const handleWordCountChange = (count: number) => {
+    app.updateState({ scriptWordCount: count });
   };
 
   React.useEffect(() => {
@@ -326,7 +346,7 @@ function ScriptVoiceoverStep() {
           onClick={() => setShowAIWriter(!showAIWriter)}
           size="sm"
         >
-          {showAIWriter ? '✕ Close AI Writer' : '✨ Write Script with AI'}
+          {showAIWriter ? 'Close AI Writer' : 'Write Script with AI'}
         </Button>
         
         {showAIWriter && (
@@ -335,18 +355,40 @@ function ScriptVoiceoverStep() {
               onUseAsScript={handleUseAIScript}
               initialScript={app.script}
               niche={app.selectedNiche}
+              chatHistory={app.chatHistory}
+              onChatHistoryChange={handleChatHistoryChange}
+              targetWordCount={app.scriptWordCount}
+              onWordCountChange={handleWordCountChange}
             />
           </div>
         )}
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Your Script</label>
+      <div className={`form-group script-form-group ${isScriptExpanded ? 'script-expanded' : ''}`}>
+        <div className="form-label-row">
+          <label className="form-label">
+            Your Script
+            {app.script && (
+              <span className="label-stats">
+                {app.script.split(/\s+/).filter(w => w).length} words · ~{Math.round(app.script.split(/\s+/).filter(w => w).length / 150 * 60)}s
+              </span>
+            )}
+          </label>
+          <button
+            type="button"
+            className="script-expand-btn"
+            onClick={() => setIsScriptExpanded(!isScriptExpanded)}
+            title={isScriptExpanded ? 'Minimize editor' : 'Expand editor for focused writing'}
+          >
+            {isScriptExpanded ? '⊖ Minimize' : '⊕ Expand'}
+          </button>
+        </div>
         <textarea
+          ref={scriptTextareaRef}
           placeholder="Enter your video script here or use AI to generate one..."
           value={app.script}
           onChange={(e) => app.updateState({ script: e.target.value })}
-          rows={6}
+          rows={isScriptExpanded ? 20 : 6}
         />
         <p className="form-hint">{app.script.length} characters · {app.script.split(/\s+/).filter(w => w).length} words</p>
       </div>
@@ -459,7 +501,7 @@ function ScriptVoiceoverStep() {
         <div className="audio-player">
           <div className="audio-player-header">
             <span className="audio-player-title">
-              <span className="icon">✓</span> Voiceover Ready
+              Voiceover Ready
             </span>
             <DownloadButton 
               url={app.voiceoverUrl}
@@ -508,13 +550,13 @@ function NicheSelectionStep() {
   };
 
   const niches = [
-    { id: 'motivational', label: 'Motivational', icon: '💪' },
-    { id: 'educational', label: 'Educational', icon: '📚' },
-    { id: 'entertainment', label: 'Entertainment', icon: '🎭' },
-    { id: 'news', label: 'News', icon: '📰' },
-    { id: 'gaming', label: 'Gaming', icon: '🎮' },
-    { id: 'lifestyle', label: 'Lifestyle', icon: '✨' },
-    { id: 'other', label: 'Other', icon: '📁' },
+    { id: 'motivational', label: 'Motivational' },
+    { id: 'educational', label: 'Educational' },
+    { id: 'entertainment', label: 'Entertainment' },
+    { id: 'news', label: 'News' },
+    { id: 'gaming', label: 'Gaming' },
+    { id: 'lifestyle', label: 'Lifestyle' },
+    { id: 'other', label: 'Other' },
   ];
 
   return (
@@ -532,12 +574,12 @@ function NicheSelectionStep() {
           Choose a content category to optimize AI-generated visuals for your video style
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--spacing-sm)' }}>
-          {niches.map(({ id, label, icon }) => (
+          {niches.map(({ id, label }) => (
             <button
               key={id}
               onClick={() => handleSelectNiche(id)}
               style={{
-                padding: 'var(--spacing-sm)',
+                padding: 'var(--spacing-md)',
                 background: app.selectedNiche === id ? 'var(--primary)' : 'var(--bg-tertiary)',
                 border: `1px solid ${app.selectedNiche === id ? 'var(--primary)' : 'var(--glass-border)'}`,
                 borderRadius: 'var(--radius-sm)',
@@ -545,13 +587,11 @@ function NicheSelectionStep() {
                 cursor: 'pointer',
                 transition: 'all var(--transition-fast)',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
               }}
             >
-              <span style={{ fontSize: '1.5rem' }}>{icon}</span>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>{label}</span>
+              <span style={{ fontSize: '0.875rem', fontWeight: '500' }}>{label}</span>
             </button>
           ))}
         </div>
@@ -571,19 +611,16 @@ function NicheSelectionStep() {
             <FlowCard
               title="Single Image"
               description="Generate one AI image that loops throughout the video"
-              icon="🖼️"
               onClick={() => handleSelectFlow('single-image')}
             />
             <FlowCard
               title="Multiple Images"
               description="Generate multiple AI images for dynamic scene transitions"
-              icon="🎨"
               onClick={() => handleSelectFlow('multi-image')}
             />
             <FlowCard
               title="Stock Videos"
               description="Use professional stock footage from Pexels"
-              icon="🎥"
               onClick={() => handleSelectFlow('stock-video')}
             />
           </div>
@@ -599,10 +636,9 @@ function NicheSelectionStep() {
   );
 }
 
-function FlowCard({ title, description, icon, onClick }: any) {
+function FlowCard({ title, description, onClick }: any) {
   return (
     <Card className="flow-card card-padding" onClick={onClick}>
-      <div className="flow-icon">{icon}</div>
       <h3 style={{ marginBottom: '6px', fontSize: '1rem' }}>{title}</h3>
       <p style={{ color: 'var(--text-secondary)', fontSize: '0.8125rem', margin: 0 }}>{description}</p>
     </Card>
@@ -625,6 +661,12 @@ function AssetGenerationStep() {
   const [refiningIndex, setRefiningIndex] = useState<number | null>(null);
   const [brainDumpText, setBrainDumpText] = useState('');
   const [showBrainDump, setShowBrainDump] = useState(false);
+  const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
+  // Refine prompt modal state
+  const [refineModalIndex, setRefineModalIndex] = useState<number | null>(null);
+  const [refineModalInput, setRefineModalInput] = useState('');
+  // Service availability based on API keys
+  const [serviceStatus, setServiceStatus] = useState<{ openrouter: boolean; gemini: boolean; available: string[] } | null>(null);
   const processLog = useProcessLog();
   
   const sortedImages = React.useMemo(() => {
@@ -652,6 +694,39 @@ function AssetGenerationStep() {
     }).catch(console.error);
   }, [imageService]);
 
+  // Check which image services have API keys configured
+  React.useEffect(() => {
+    api.getImageServiceStatus().then(setServiceStatus).catch(console.error);
+  }, []);
+
+  // Auto-select first available service if current is unavailable
+  React.useEffect(() => {
+    if (serviceStatus && serviceStatus.available.length > 0) {
+      if (!serviceStatus.available.includes(imageService)) {
+        setImageService(serviceStatus.available[0]);
+      }
+    }
+  }, [serviceStatus, imageService]);
+
+  // Sync prompts with app context
+  React.useEffect(() => {
+    // Initialize prompts from app context when component mounts or app prompts change
+    if (app.imagePrompts.length > 0 && prompts.length === 0) {
+      setPrompts(app.imagePrompts);
+    }
+  }, [app.imagePrompts]);
+
+  // Track previous flow to detect changes
+  const prevFlowRef = React.useRef(app.selectedFlow);
+  React.useEffect(() => {
+    if (prevFlowRef.current !== app.selectedFlow) {
+      // Reset prompts and images when switching flows
+      setPrompts([]);
+      app.updateState({ imagePrompts: [], generatedImages: [] });
+      prevFlowRef.current = app.selectedFlow;
+    }
+  }, [app.selectedFlow]);
+
   const handlePromptChange = (index: number, value: string) => {
     const updated = prompts.map((prompt, idx) =>
       idx === index ? { ...prompt, prompt: value } : prompt
@@ -660,14 +735,19 @@ function AssetGenerationStep() {
     app.updateState({ imagePrompts: updated });
   };
 
-  const handleRefinePrompt = async (index: number) => {
+  const handleRefinePrompt = async (index: number, userIdeas?: string) => {
     const currentPrompt = prompts[index]?.prompt;
     if (!currentPrompt) return;
 
     setRefiningIndex(index);
     try {
+      // Combine current prompt with user ideas if provided
+      const promptToRefine = userIdeas 
+        ? `${currentPrompt}\n\nUser wants to add/modify: ${userIdeas}`
+        : currentPrompt;
+        
       const result = await api.refineImagePrompt({
-        prompt: currentPrompt,
+        prompt: promptToRefine,
         scriptContext: app.script,
         niche: app.selectedNiche || undefined,
         model: llmModel as any
@@ -680,6 +760,20 @@ function AssetGenerationStep() {
     } finally {
       setRefiningIndex(null);
     }
+  };
+
+  // Open refine modal for a prompt
+  const openRefineModal = (index: number) => {
+    setRefineModalIndex(index);
+    setRefineModalInput('');
+  };
+
+  // Execute refine from modal
+  const executeRefineFromModal = async () => {
+    if (refineModalIndex === null) return;
+    setRefineModalIndex(null);
+    await handleRefinePrompt(refineModalIndex, refineModalInput.trim() || undefined);
+    setRefineModalInput('');
   };
 
   const handleBrainDumpToPrompt = async () => {
@@ -852,9 +946,18 @@ function AssetGenerationStep() {
             value={imageService}
             onChange={(e) => setImageService(e.target.value)}
           >
-            <option value="gemini">Gemini Imagen (Free)</option>
-            <option value="openrouter">OpenRouter (FLUX, DALL-E)</option>
+            <option value="gemini" disabled={serviceStatus ? !serviceStatus.gemini : false}>
+              Gemini Imagen {serviceStatus && !serviceStatus.gemini ? '(No API Key)' : '(Free)'}
+            </option>
+            <option value="openrouter" disabled={serviceStatus ? !serviceStatus.openrouter : false}>
+              OpenRouter {serviceStatus && !serviceStatus.openrouter ? '(No API Key)' : '(FLUX, DALL-E)'}
+            </option>
           </select>
+          {serviceStatus && serviceStatus.available.length === 0 && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--error)', marginTop: '4px', display: 'block' }}>
+              No API keys configured. Check backend .env file.
+            </span>
+          )}
         </div>
 
         <div className="form-group" style={{ marginBottom: 0 }}>
@@ -862,10 +965,15 @@ function AssetGenerationStep() {
           <select
             value={imageModel}
             onChange={(e) => setImageModel(e.target.value)}
+            disabled={models.length === 0}
           >
-            {models.map((m: any) => (
-              <option key={m.id} value={m.id}>{m.name || m.id}</option>
-            ))}
+            {models.length === 0 ? (
+              <option>No models available</option>
+            ) : (
+              models.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name || m.id}</option>
+              ))
+            )}
           </select>
         </div>
       </div>
@@ -942,7 +1050,7 @@ function AssetGenerationStep() {
           onClick={() => setShowBrainDump(!showBrainDump)}
           size="sm"
         >
-          {showBrainDump ? '✕ Close' : '🧠 Brain Dump → AI Prompt'}
+          {showBrainDump ? 'Close' : 'Brain Dump to AI Prompt'}
         </Button>
         
         {showBrainDump && (
@@ -964,7 +1072,7 @@ function AssetGenerationStep() {
               style={{ width: '100%', fontSize: '0.8125rem', marginBottom: 'var(--spacing-sm)' }}
             />
             <Button onClick={handleBrainDumpToPrompt} isLoading={loading} size="sm">
-              ✨ Generate Prompt
+              Generate Prompt
             </Button>
           </div>
         )}
@@ -987,16 +1095,46 @@ function AssetGenerationStep() {
               <h3 style={{ fontSize: '0.9375rem' }}>Generated Prompts</h3>
               <span className="section-badge">{prompts.length} prompts</span>
             </div>
+            {/* Show timing info for multi-image */}
+            {app.selectedFlow === 'multi-image' && app.voiceoverDuration && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                ~{Math.round(app.voiceoverDuration / prompts.length)}s each · {Math.round(app.voiceoverDuration)}s total
+              </span>
+            )}
           </div>
           <div style={{ maxHeight: '350px', overflow: 'auto', marginBottom: 'var(--spacing-md)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)' }}>
-            {prompts.map((p, i) => (
+            {prompts.map((p, i) => {
+              // Calculate estimated timing for this scene
+              const sceneDuration = app.selectedFlow === 'multi-image' && app.voiceoverDuration 
+                ? Math.round(app.voiceoverDuration / prompts.length) 
+                : null;
+              const sceneStart = sceneDuration ? i * sceneDuration : null;
+              
+              return (
               <div key={i} style={{ padding: 'var(--spacing-sm)', borderBottom: i < prompts.length - 1 ? '1px solid var(--glass-border)' : 'none' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-secondary)' }}>
-                    Scene {i + 1}: {p.sceneDescription || 'No description'}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
+                    <span style={{ 
+                      fontSize: '0.6875rem', 
+                      fontWeight: '600', 
+                      color: 'var(--primary)',
+                      background: 'var(--bg-secondary)',
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-xs)'
+                    }}>
+                      {i + 1}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', fontWeight: '500', color: 'var(--text-secondary)' }}>
+                      {p.sceneDescription || 'Scene description'}
+                    </span>
+                    {sceneDuration && (
+                      <span style={{ fontSize: '0.6875rem', color: 'var(--text-tertiary)' }}>
+                        ({sceneStart}s - {sceneStart! + sceneDuration}s)
+                      </span>
+                    )}
+                  </div>
                   <button
-                    onClick={() => handleRefinePrompt(i)}
+                    onClick={() => openRefineModal(i)}
                     disabled={refiningIndex === i}
                     style={{
                       padding: '2px 8px',
@@ -1009,7 +1147,7 @@ function AssetGenerationStep() {
                       opacity: refiningIndex === i ? 0.7 : 1
                     }}
                   >
-                    {refiningIndex === i ? '...' : '✨ Refine'}
+                    {refiningIndex === i ? '...' : 'AI Refine'}
                   </button>
                 </div>
                 <textarea
@@ -1019,7 +1157,8 @@ function AssetGenerationStep() {
                   style={{ width: '100%', fontSize: '0.8125rem' }}
                 />
               </div>
-            ))}
+            );
+            })}
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
             <Button onClick={handleGenerateImages} isLoading={loading}>
@@ -1037,7 +1176,7 @@ function AssetGenerationStep() {
         <div className="asset-preview-section">
           <div className="asset-preview-header">
             <span className="asset-preview-title">
-              <span style={{ color: 'var(--success)' }}>✓</span> Generated Images ({sortedImages.length})
+              Generated Images ({sortedImages.length})
             </span>
             <div className="asset-preview-actions">
               <DownloadAllButton 
@@ -1070,6 +1209,21 @@ function AssetGenerationStep() {
                         icon={false}
                       />
                       <button
+                        onClick={() => setEditingImageIndex(promptIndex)}
+                        style={{ 
+                          flex: 1, 
+                          padding: '6px 8px', 
+                          fontSize: '0.75rem', 
+                          background: 'var(--primary)', 
+                          border: 'none', 
+                          borderRadius: 'var(--radius-xs)', 
+                          cursor: 'pointer',
+                          color: 'white'
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
                         onClick={() => handleRegenerateImage(promptIndex)}
                         disabled={regeneratingIndex === promptIndex}
                         style={{ 
@@ -1083,7 +1237,7 @@ function AssetGenerationStep() {
                           color: 'var(--text-primary)'
                         }}
                       >
-                        {regeneratingIndex === promptIndex ? '...' : '🔄'}
+                        {regeneratingIndex === promptIndex ? '...' : 'Redo'}
                       </button>
                     </div>
                   </div>
@@ -1094,6 +1248,123 @@ function AssetGenerationStep() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Image Edit Modal */}
+      {(() => {
+        // Find the image by promptIndex, not array index
+        const editingImage = editingImageIndex !== null 
+          ? sortedImages.find((img: any) => (img.promptIndex ?? 0) === editingImageIndex)
+          : null;
+        
+        if (!editingImage || editingImageIndex === null) return null;
+        
+        return (
+          <ImageEditModal
+            imageUrl={editingImage.imageUrl}
+            imageIndex={editingImageIndex}
+            onClose={() => setEditingImageIndex(null)}
+            onSave={(newImageUrl, newImageId) => {
+              // Update the image in the state
+              const updated = [...app.generatedImages];
+              const actualIndex = updated.findIndex(img => 
+                (img.promptIndex ?? 0) === editingImageIndex
+              );
+              if (actualIndex !== -1) {
+                updated[actualIndex] = {
+                  ...updated[actualIndex],
+                  imageUrl: newImageUrl,
+                  imageId: newImageId
+                };
+                app.updateState({ generatedImages: updated });
+                toastSuccess('Image updated successfully!');
+              }
+              setEditingImageIndex(null);
+            }}
+          />
+        );
+      })()}
+
+      {/* Refine Prompt Modal */}
+      {refineModalIndex !== null && (
+        <div 
+          className="refine-modal-overlay"
+          onClick={() => setRefineModalIndex(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--spacing-md)'
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-lg)',
+              padding: 'var(--spacing-lg)',
+              maxWidth: '500px',
+              width: '100%',
+              border: '1px solid var(--glass-border)'
+            }}
+          >
+            <h3 style={{ margin: '0 0 var(--spacing-sm) 0', fontSize: '1rem' }}>
+              Refine Prompt #{refineModalIndex + 1}
+            </h3>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
+              Add your ideas or leave empty for automatic AI refinement
+            </p>
+            
+            {/* Current prompt preview */}
+            <div style={{ 
+              padding: 'var(--spacing-sm)', 
+              background: 'var(--bg-tertiary)', 
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: 'var(--spacing-md)',
+              fontSize: '0.75rem',
+              color: 'var(--text-secondary)',
+              maxHeight: '80px',
+              overflow: 'auto'
+            }}>
+              <strong>Current:</strong> {prompts[refineModalIndex]?.prompt?.substring(0, 200)}...
+            </div>
+            
+            <textarea
+              value={refineModalInput}
+              onChange={(e) => setRefineModalInput(e.target.value)}
+              placeholder="e.g., 'make it more dramatic', 'add golden hour lighting', 'include a person in silhouette'..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: 'var(--spacing-sm)',
+                fontSize: '0.875rem',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--glass-border)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--text-primary)',
+                resize: 'none',
+                marginBottom: 'var(--spacing-md)'
+              }}
+              autoFocus
+            />
+            
+            <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" onClick={() => setRefineModalIndex(null)}>
+                Cancel
+              </Button>
+              <Button onClick={executeRefineFromModal}>
+                {refineModalInput.trim() ? 'Refine with Ideas' : 'Auto Refine'}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -1362,7 +1633,7 @@ function StockVideoSelectionStep() {
                 marginBottom: 'var(--spacing-xs)'
               }}>
                 <span style={{ fontSize: '0.75rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
-                  ⏱️ Smart Timing Preview
+                  Smart Timing Preview
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
                   Total: {timingPreview.totalDuration.toFixed(1)}s · ~{timingPreview.averageDurationPerVideo.toFixed(1)}s per video
@@ -1396,9 +1667,9 @@ function StockVideoSelectionStep() {
                 fontSize: '0.625rem',
                 color: 'var(--text-tertiary)'
               }}>
-                <span>🟢 Fits exactly</span>
-                <span>🟡 Will loop</span>
-                <span>🔵 Will trim</span>
+                <span><span style={{ color: 'var(--success)' }}>•</span> Fits exactly</span>
+                <span><span style={{ color: 'var(--warning)' }}>•</span> Will loop</span>
+                <span><span style={{ color: 'var(--primary)' }}>•</span> Will trim</span>
               </div>
             </div>
           )}
@@ -1460,14 +1731,15 @@ function StockVideoSelectionStep() {
                     className="stock-slot-swap-btn"
                     onClick={() => openSwapModal(slot.id)}
                   >
-                    🔄 Swap
+                    Swap
                   </button>
                   <DownloadButton
                     url={slot.video.url}
                     filename={`stock-video-${String(index + 1).padStart(2, '0')}.mp4`}
-                    label="⬇"
+                    label=""
                     variant="secondary"
                     size="sm"
+                    icon={true}
                   />
                 </div>
               </div>
@@ -1734,12 +2006,34 @@ function VideoGenerationStep() {
           imageUrl: img.imageUrl,
           duration: app.imageDuration,
         }));
+        // Add custom timing data if available
+        if (app.useCustomTiming && app.timelineSlots.length > 0) {
+          queueState.useCustomTiming = true;
+          queueState.timelineSlots = app.timelineSlots.map(slot => ({
+            id: slot.id,
+            type: slot.type,
+            assetUrl: slot.assetUrl,
+            duration: slot.duration,
+            originalIndex: slot.originalIndex
+          }));
+        }
       } else if (app.selectedFlow === 'stock-video') {
         queueState.selectedVideos = app.selectedVideos.map(video => ({
           id: video.id,
           url: video.url,
           duration: video.duration
         }));
+        // Add custom timing data if available
+        if (app.useCustomTiming && app.timelineSlots.length > 0) {
+          queueState.useCustomTiming = true;
+          queueState.timelineSlots = app.timelineSlots.map(slot => ({
+            id: slot.id,
+            type: slot.type,
+            assetUrl: slot.assetUrl,
+            duration: slot.duration,
+            originalIndex: slot.originalIndex
+          }));
+        }
       }
 
       // Add to queue - the QueueContext will handle starting the job
@@ -1789,7 +2083,7 @@ function VideoGenerationStep() {
       {/* Video Settings */}
       <details className="video-settings-panel" open>
         <summary className="video-settings-header">
-          <span className="video-settings-icon">⚙️</span>
+
           <span>Video Settings</span>
           <span className="video-settings-summary">
             {app.videoQuality} quality{app.captionsEnabled ? ' · captions' : ''}
@@ -1894,7 +2188,7 @@ function VideoGenerationStep() {
           <div className="audio-player" style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div className="audio-player-header">
               <span className="audio-player-title">
-                <span className="icon">🎙️</span> Voiceover
+                Voiceover
               </span>
               <DownloadButton 
                 url={app.voiceoverUrl}
@@ -1912,7 +2206,7 @@ function VideoGenerationStep() {
         {app.generatedImages.length > 0 && (
           <div style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>📸 Images ({app.generatedImages.length})</span>
+              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Images ({app.generatedImages.length})</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.generatedImages.slice(0, 6).map((img: any, i) => (
@@ -1933,7 +2227,7 @@ function VideoGenerationStep() {
         {app.selectedFlow === 'stock-video' && app.selectedVideos.length > 0 && (
           <div style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>🎥 Stock Videos ({app.selectedVideos.length})</span>
+              <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Stock Videos ({app.selectedVideos.length})</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.selectedVideos.slice(0, 6).map((video, i) => (
@@ -1981,7 +2275,7 @@ function VideoGenerationStep() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--spacing-lg)' }}>
             <Button onClick={handleStartNewProject} variant="primary">
-              🎬 Start New Project
+              Start New Project
             </Button>
           </div>
         </div>
@@ -1989,7 +2283,7 @@ function VideoGenerationStep() {
         <div style={{ background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ padding: 'var(--spacing-md)', borderBottom: '1px solid var(--glass-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span style={{ fontSize: '0.9375rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: 'var(--spacing-xs)' }}>
-              <span style={{ color: 'var(--success)' }}>✓</span> Video Ready
+              Video Ready
             </span>
             <div style={{ display: 'flex', gap: 'var(--spacing-xs)' }}>
               <DownloadButton 
@@ -2016,7 +2310,7 @@ function VideoGenerationStep() {
                 processLog.clearLog();
               }}
             >
-              🔄 Regenerate Video
+              Regenerate Video
             </Button>
             <div style={{ flex: 1 }} />
             <Button onClick={handleStartNewProject}>
@@ -2027,7 +2321,7 @@ function VideoGenerationStep() {
       ) : submittedToQueue && currentQueuedProject?.status === 'failed' ? (
         <div style={{ padding: 'var(--spacing-lg)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
           <div style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '2rem' }}>❌</span>
+
             <h3 style={{ marginTop: 'var(--spacing-sm)', color: 'var(--error)' }}>Video Generation Failed</h3>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
               {currentQueuedProject.error || 'An unknown error occurred'}
@@ -2051,63 +2345,9 @@ function VideoGenerationStep() {
         </div>
       ) : (
         <div>
-          {app.selectedFlow === 'multi-image' && (
-            <div style={{ marginBottom: 'var(--spacing-md)', padding: 'var(--spacing-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
-              {(() => {
-                const imageCount = app.generatedImages.length;
-                const voiceoverDuration = app.voiceoverDuration || 0;
-                const suggestedDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
-                const totalImagesDuration = imageCount * app.imageDuration;
-                const coversFullAudio = totalImagesDuration >= voiceoverDuration;
-                
-                return (
-                  <>
-                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Image Duration Settings</span>
-                    </div>
-                    
-                    <div style={{ 
-                      padding: 'var(--spacing-sm)', 
-                      background: 'var(--bg-secondary)', 
-                      borderRadius: 'var(--radius-sm)',
-                      marginBottom: 'var(--spacing-sm)'
-                    }}>
-                      <p style={{ fontSize: '0.8125rem', marginBottom: 'var(--spacing-xs)' }}>
-                        💡 Suggested: <strong>{suggestedDuration}s</strong> per image to evenly distribute across {Math.round(voiceoverDuration)}s audio
-                      </p>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => app.updateState({ imageDuration: suggestedDuration })}
-                      >
-                        Apply Suggestion
-                      </Button>
-                    </div>
-                    
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Duration per image: <strong>{app.imageDuration}s</strong></label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="30"
-                        value={app.imageDuration}
-                        onChange={(e) => app.updateState({ imageDuration: parseInt(e.target.value) })}
-                      />
-                    </div>
-                    
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                      <p>Images: {imageCount} × {app.imageDuration}s = <strong>{totalImagesDuration}s</strong> | Voiceover: <strong>{Math.round(voiceoverDuration)}s</strong></p>
-                      
-                      {!coversFullAudio && (
-                        <p style={{ color: 'var(--warning)', marginTop: '4px' }}>
-                          ⚠️ Last image will extend to cover remaining {Math.round(voiceoverDuration - totalImagesDuration)}s
-                        </p>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
+          {/* Timeline Editor for multi-image and stock-video flows */}
+          {(app.selectedFlow === 'multi-image' || app.selectedFlow === 'stock-video') && (
+            <TimelineSection />
           )}
           
           <div className="actions-bar">
@@ -2122,5 +2362,344 @@ function VideoGenerationStep() {
         </div>
       )}
     </Card>
+  );
+}
+
+// Timeline section component for multi-image and stock-video flows
+function TimelineSection() {
+  const app = useApp();
+  const [showAdvancedTimeline, setShowAdvancedTimeline] = useState(false);
+  const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+
+  // Build timeline slots from current assets
+  const buildTimelineSlots = useCallback((): TimelineEditorSlot[] => {
+    const voiceoverDuration = app.voiceoverDuration || 60;
+    
+    if (app.selectedFlow === 'multi-image') {
+      const imageCount = app.generatedImages.length;
+      const defaultDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
+      
+      // Use existing timeline slots if available, otherwise build from images
+      if (app.useCustomTiming && app.timelineSlots.length === app.generatedImages.length) {
+        let startTime = 0;
+        return app.timelineSlots.map((slot, idx) => {
+          const result = {
+            ...slot,
+            startTime,
+            assetUrl: toAssetUrl(slot.assetUrl)
+          };
+          startTime += slot.duration;
+          return result;
+        });
+      }
+      
+      let startTime = 0;
+      return app.generatedImages.map((img: any, idx) => {
+        const duration = app.imageDuration || defaultDuration;
+        const slot: TimelineEditorSlot = {
+          id: img.imageId || `img-${idx}`,
+          type: 'image',
+          assetUrl: toAssetUrl(img.imageUrl),
+          duration: duration,
+          startTime: startTime,
+          label: `Scene ${idx + 1}`,
+          originalIndex: idx
+        };
+        startTime += duration;
+        return slot;
+      });
+    } else if (app.selectedFlow === 'stock-video') {
+      const videoCount = app.selectedVideos.length;
+      const defaultDuration = videoCount > 0 ? Math.ceil(voiceoverDuration / videoCount) : 5;
+      
+      // Use existing timeline slots if available
+      if (app.useCustomTiming && app.timelineSlots.length === app.selectedVideos.length) {
+        let startTime = 0;
+        return app.timelineSlots.map((slot, idx) => {
+          const result = {
+            ...slot,
+            startTime
+          };
+          startTime += slot.duration;
+          return result;
+        });
+      }
+      
+      let startTime = 0;
+      return app.selectedVideos.map((video, idx) => {
+        const duration = video.duration || defaultDuration;
+        const slot: TimelineEditorSlot = {
+          id: video.id || `vid-${idx}`,
+          type: 'video',
+          assetUrl: video.url,
+          thumbnailUrl: video.thumbnailUrl,
+          duration: Math.min(duration, voiceoverDuration / videoCount),
+          startTime: startTime,
+          label: video.title || `Video ${idx + 1}`,
+          originalIndex: idx
+        };
+        startTime += slot.duration;
+        return slot;
+      });
+    }
+    
+    return [];
+  }, [app.selectedFlow, app.generatedImages, app.selectedVideos, app.voiceoverDuration, app.imageDuration, app.useCustomTiming, app.timelineSlots]);
+
+  const [localSlots, setLocalSlots] = useState<TimelineEditorSlot[]>(buildTimelineSlots);
+
+  // Rebuild slots when assets change
+  useEffect(() => {
+    if (!app.useCustomTiming) {
+      setLocalSlots(buildTimelineSlots());
+    }
+  }, [buildTimelineSlots, app.useCustomTiming]);
+
+  // Handle timeline slot changes
+  const handleSlotsChange = (newSlots: TimelineEditorSlot[]) => {
+    setLocalSlots(newSlots);
+    
+    // Update app state with custom timing
+    const timelineSlots: TimelineSlot[] = newSlots.map((slot, idx) => ({
+      id: slot.id,
+      type: slot.type,
+      assetUrl: slot.assetUrl.replace('http://localhost:3001', ''),
+      thumbnailUrl: slot.thumbnailUrl,
+      duration: slot.duration,
+      startTime: slot.startTime,
+      label: slot.label,
+      originalIndex: slot.originalIndex
+    }));
+    
+    app.updateState({ 
+      timelineSlots,
+      useCustomTiming: true
+    });
+
+    // Also update imageDuration to the average for multi-image
+    if (app.selectedFlow === 'multi-image' && newSlots.length > 0) {
+      const avgDuration = Math.round(newSlots.reduce((sum, s) => sum + s.duration, 0) / newSlots.length);
+      app.updateState({ imageDuration: avgDuration });
+    }
+  };
+
+  // Simple duration adjustment for uniform timing
+  const handleUniformDurationChange = (newDuration: number) => {
+    app.updateState({ 
+      imageDuration: newDuration,
+      useCustomTiming: false,
+      timelineSlots: []
+    });
+    setLocalSlots(buildTimelineSlots());
+  };
+
+  const imageCount = app.selectedFlow === 'multi-image' ? app.generatedImages.length : app.selectedVideos.length;
+  const voiceoverDuration = app.voiceoverDuration || 0;
+  const suggestedDuration = imageCount > 0 ? Math.ceil(voiceoverDuration / imageCount) : 5;
+  const totalAssetsDuration = localSlots.reduce((sum, s) => sum + s.duration, 0);
+  const coversFullAudio = totalAssetsDuration >= voiceoverDuration;
+
+  return (
+    <div style={{ marginBottom: 'var(--spacing-md)' }}>
+      {/* Toggle between simple and advanced timeline */}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        marginBottom: 'var(--spacing-md)',
+        padding: 'var(--spacing-sm) var(--spacing-md)',
+        background: 'var(--bg-tertiary)',
+        borderRadius: 'var(--radius-md)'
+      }}>
+        <div>
+          <span style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+            {app.selectedFlow === 'multi-image' ? 'Image' : 'Video'} Timeline
+          </span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: 'var(--spacing-sm)' }}>
+            {imageCount} assets • {Math.round(voiceoverDuration)}s audio
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 'var(--spacing-sm)', alignItems: 'center' }}>
+          <label style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: 'var(--spacing-xs)',
+            fontSize: '0.8125rem',
+            cursor: 'pointer'
+          }}>
+            <input
+              type="checkbox"
+              checked={showAdvancedTimeline}
+              onChange={(e) => setShowAdvancedTimeline(e.target.checked)}
+              style={{ width: '16px', height: '16px' }}
+            />
+            Advanced Editor
+          </label>
+        </div>
+      </div>
+
+      {showAdvancedTimeline ? (
+        /* Advanced Timeline Editor */
+        <TimelineEditor
+          slots={localSlots}
+          totalDuration={voiceoverDuration}
+          onSlotsChange={handleSlotsChange}
+          voiceoverUrl={app.voiceoverUrl || undefined}
+        />
+      ) : (
+        /* Simple Duration Settings */
+        <div style={{ padding: 'var(--spacing-md)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+          {/* Visual Timeline Preview - Improved */}
+          <div style={{ 
+            marginBottom: 'var(--spacing-md)',
+            padding: 'var(--spacing-md)',
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--glass-border)'
+          }}>
+            <div style={{ 
+              fontSize: '0.75rem', 
+              color: 'var(--text-secondary)', 
+              marginBottom: 'var(--spacing-sm)', 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span style={{ fontWeight: '600' }}>📊 Timeline Preview</span>
+              <span style={{ fontFamily: 'Monaco, Consolas, monospace' }}>
+                {totalAssetsDuration}s / {Math.round(voiceoverDuration)}s
+              </span>
+            </div>
+            
+            {/* Timeline bar */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '2px', 
+              height: '48px', 
+              background: '#1a1a1a', 
+              borderRadius: 'var(--radius-sm)', 
+              overflow: 'hidden',
+              border: '1px solid var(--glass-border)'
+            }}>
+              {localSlots.map((slot, idx) => {
+                const duration = slot.duration;
+                const widthPercent = (duration / Math.max(voiceoverDuration, totalAssetsDuration)) * 100;
+                return (
+                  <div
+                    key={slot.id}
+                    style={{
+                      width: `${widthPercent}%`,
+                      minWidth: '24px',
+                      background: `linear-gradient(135deg, hsl(${(idx * 45) % 360}, 65%, 45%) 0%, hsl(${(idx * 45) % 360}, 55%, 35%) 100%)`,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.625rem',
+                      color: 'white',
+                      fontWeight: '600',
+                      position: 'relative',
+                      borderRight: idx < localSlots.length - 1 ? '1px solid rgba(0,0,0,0.3)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title={`${slot.label || `Clip ${idx + 1}`}: ${duration}s (${slot.startTime}s - ${slot.startTime + duration}s)`}
+                  >
+                    <span style={{ opacity: 0.9 }}>{idx + 1}</span>
+                    <span style={{ fontSize: '0.5625rem', opacity: 0.7, marginTop: '2px' }}>{duration}s</span>
+                  </div>
+                );
+              })}
+              {!coversFullAudio && (
+                <div 
+                  style={{ 
+                    width: `${((voiceoverDuration - totalAssetsDuration) / voiceoverDuration) * 100}%`,
+                    minWidth: '20px',
+                    background: 'repeating-linear-gradient(45deg, rgba(234, 179, 8, 0.3) 0px, rgba(234, 179, 8, 0.3) 4px, transparent 4px, transparent 8px)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.5rem',
+                    color: 'var(--warning)'
+                  }}
+                  title={`Gap: Last clip extends by ${Math.round(voiceoverDuration - totalAssetsDuration)}s`}
+                >
+                  +{Math.round(voiceoverDuration - totalAssetsDuration)}s
+                </div>
+              )}
+            </div>
+            
+            {/* Time markers */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              marginTop: '4px',
+              fontSize: '0.5625rem',
+              color: 'var(--text-tertiary)',
+              fontFamily: 'Monaco, Consolas, monospace'
+            }}>
+              <span>0:00</span>
+              <span>{Math.floor(voiceoverDuration / 2 / 60)}:{String(Math.floor(voiceoverDuration / 2) % 60).padStart(2, '0')}</span>
+              <span>{Math.floor(voiceoverDuration / 60)}:{String(Math.floor(voiceoverDuration) % 60).padStart(2, '0')}</span>
+            </div>
+          </div>
+          
+          <div style={{ 
+            padding: 'var(--spacing-sm)', 
+            background: 'var(--bg-secondary)', 
+            borderRadius: 'var(--radius-sm)',
+            marginBottom: 'var(--spacing-sm)'
+          }}>
+            <p style={{ fontSize: '0.8125rem', marginBottom: 'var(--spacing-xs)' }}>
+              💡 Suggested: <strong>{suggestedDuration}s</strong> per {app.selectedFlow === 'multi-image' ? 'image' : 'video'} to evenly distribute across {Math.round(voiceoverDuration)}s audio
+            </p>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => handleUniformDurationChange(suggestedDuration)}
+            >
+              Apply Suggestion
+            </Button>
+          </div>
+          
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Duration per {app.selectedFlow === 'multi-image' ? 'image' : 'video'}: <strong>{app.imageDuration}s</strong></label>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={app.imageDuration}
+              onChange={(e) => handleUniformDurationChange(parseInt(e.target.value))}
+            />
+          </div>
+          
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 'var(--spacing-xs)' }}>
+            <p>Assets: {imageCount} × {app.imageDuration}s = <strong>{totalAssetsDuration}s</strong> | Voiceover: <strong>{Math.round(voiceoverDuration)}s</strong></p>
+            
+            {!coversFullAudio && (
+              <p style={{ color: 'var(--warning)', marginTop: '4px' }}>
+                ⚠️ Last asset will extend to cover remaining {Math.round(voiceoverDuration - totalAssetsDuration)}s
+              </p>
+            )}
+          </div>
+          
+          <div style={{ marginTop: 'var(--spacing-md)', paddingTop: 'var(--spacing-sm)', borderTop: '1px solid var(--glass-border)' }}>
+            <button
+              onClick={() => setShowAdvancedTimeline(true)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--primary)',
+                fontSize: '0.8125rem',
+                cursor: 'pointer',
+                padding: 0,
+                textDecoration: 'underline'
+              }}
+            >
+              Need more control? Open Advanced Timeline Editor →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

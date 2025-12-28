@@ -276,6 +276,81 @@
     margin-bottom: var(--spacing-md);
 }
 
+/* Script textarea expand functionality */
+.script-form-group {
+    position: relative;
+    transition: all 0.25s ease;
+}
+
+.script-form-group.script-expanded {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    background: var(--bg-primary);
+    padding: 24px;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.script-form-group.script-expanded::before {
+    display: none;
+}
+
+.script-form-group.script-expanded textarea {
+    flex: 1;
+    resize: none;
+    min-height: auto;
+    font-size: 15px;
+    line-height: 1.6;
+    border-radius: 8px;
+}
+
+.script-form-group.script-expanded .form-hint {
+    margin-top: 12px;
+}
+
+.form-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: var(--spacing-sm);
+}
+
+.form-label-row .form-label {
+    margin-bottom: 0;
+}
+
+.script-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
+    border: 1px solid var(--glass-border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.script-expand-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+.script-form-group.script-expanded .script-expand-btn {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
 .form-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -288,7 +363,9 @@
 }
 
 .form-label {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 6px;
     font-size: 0.8125rem;
     font-weight: 500;
@@ -298,6 +375,15 @@
 .label-hint {
     color: var(--text-tertiary);
     font-weight: 400;
+}
+
+.label-stats {
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
 }
 
 .form-hint {

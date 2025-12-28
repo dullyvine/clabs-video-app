@@ -22,10 +22,10 @@ export type ImageService = 'openrouter' | 'gemini';
 export type ImageModel =
     // OpenRouter models (dynamically fetched)
     | 'flux-pro' | 'flux-dev' | 'flux-schnell' | 'dall-e-3'
-    // Gemini Nano Banana models (uses generateContent)
-    | 'gemini-2.5-flash-image'
-    | 'gemini-2.5-pro-image'
-    // Gemini Imagen models (uses generateImages)
+    // Gemini Nano Banana models (uses generateContent API)
+    | 'gemini-2.5-flash-image'      // Nano Banana - fast, good quality
+    | 'gemini-3-pro-image-preview'  // Nano Banana Pro - best quality, supports 4K & thinking
+    // Gemini Imagen models (uses predict/generateImages API)
     | 'imagen-4.0-generate-001'
     | 'imagen-4.0-ultra-generate-001'
     | 'imagen-4.0-fast-generate-001'
@@ -232,6 +232,26 @@ export type Niche = 'motivational' | 'educational' | 'entertainment' | 'news' | 
 // Chat/Script writing types
 export type GeminiChatModel = 'gemini-2.5-flash' | 'gemini-2.5-pro' | 'gemini-1.5-flash' | 'gemini-1.5-pro';
 
+// Provider types for chat models
+export type ChatModelProvider = 'gemini' | 'openrouter';
+
+// Model definition with capabilities
+export interface ChatModelDefinition {
+    id: string;                      // Full model ID (e.g., 'gemini-2.5-flash' or 'anthropic/claude-3.5-sonnet')
+    name: string;                    // Display name
+    description: string;             // Short description
+    provider: ChatModelProvider;     // Which API to use
+    supportsSearch: boolean;         // Can use web search/grounding
+    contextLength?: number;          // Max context window
+    category?: 'fast' | 'balanced' | 'powerful';  // Model tier
+}
+
+// Response from /chat/models endpoint
+export interface ChatModelsResponse {
+    models: ChatModelDefinition[];
+    defaultModel: string;
+}
+
 export interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
     content: string;
@@ -240,14 +260,16 @@ export interface ChatMessage {
 
 export interface ChatRequest {
     messages: ChatMessage[];
-    model: GeminiChatModel;
+    model: string;  // Now accepts any model ID string
     systemPrompt?: string;
     maxTokens?: number;
+    useSearch?: boolean;  // Enable web search if model supports it
 }
 
 export interface ChatResponse {
     message: ChatMessage;
-    model: GeminiChatModel;
+    model: string;  // Now returns the actual model ID used
+    searchUsed?: boolean;  // Whether search was used for this response
 }
 
 export interface ScriptGenerationRequest {
@@ -255,13 +277,38 @@ export interface ScriptGenerationRequest {
     wordCount?: number;
     tone?: string;
     niche?: Niche;
-    model: GeminiChatModel;
+    model: string;  // Now accepts any model ID string
+    useSearch?: boolean;  // Enable web search if model supports it
 }
 
 export interface ScriptGenerationResponse {
     script: string;
     wordCount: number;
-    model: GeminiChatModel;
+    model: string;  // Now returns the actual model ID used
+    searchUsed?: boolean;
+}
+
+// Enhanced Chat types for intelligent script writing
+export type ChatIntent = 'research' | 'write' | 'refine' | 'general';
+
+export interface SmartChatRequest {
+    messages: ChatMessage[];
+    model: string;  // Now accepts any model ID string
+    niche?: Niche;
+    targetWordCount?: number;  // Can be overridden by prompt
+    systemContext?: string;    // Additional context about the project
+    useSearch?: boolean;       // Enable web search if model supports it
+}
+
+export interface SmartChatResponse {
+    message: ChatMessage;
+    model: string;  // Now returns the actual model ID used
+    detectedIntent: ChatIntent;
+    extractedWordCount?: number;    // If user specified word count in prompt
+    isScript: boolean;              // True if response is a complete script
+    scriptWordCount?: number;       // Word count if isScript is true
+    suggestedActions?: string[];    // e.g., ["Use as Script", "Refine Further", "Make Shorter"]
+    searchUsed?: boolean;           // Whether search was used for this response
 }
 
 // Video quality types
@@ -307,3 +354,67 @@ export interface CaptionResponse {
     srtContent: string;
     assContent: string;
 }
+
+// Image editing types (for Gemini native image generation)
+export interface ImageEditModelInfo {
+    id: string;
+    name: string;
+    provider: 'gemini';
+    description: string;
+    supportsAspectRatio: boolean;
+}
+
+export interface ImageEditRequest {
+    imageUrl: string;          // URL of the image to edit (can be local /temp/ or /uploads/ path)
+    editPrompt: string;        // Natural language edit instruction
+    service?: ImageService;    // Default to gemini
+    model?: string;            // Model to use for editing
+    aspectRatio?: AspectRatio; // Optional aspect ratio for the output
+}
+
+export interface ImageEditResponse {
+    imageUrl: string;
+    imageId: string;
+    model: string;
+    originalImageUrl: string;  // Reference to the original
+}
+
+// Enhanced image prompt with scene timing info
+export interface ImagePromptWithTiming {
+    id: string;
+    prompt: string;
+    sceneDescription?: string;
+    duration?: number;         // Duration in seconds for this scene
+    startTime?: number;        // When this scene starts (for preview)
+}
+
+// Timeline editor types for custom asset timing
+export interface TimelineSlot {
+    id: string;
+    type: 'image' | 'video';
+    assetUrl: string;
+    thumbnailUrl?: string;
+    duration: number;          // Duration in seconds
+    startTime: number;         // Calculated from sequence order
+    label?: string;            // Display label (e.g., "Scene 1", video title)
+    originalIndex?: number;    // Original index in source array (for images/videos)
+}
+
+// Request type for video generation with custom timing
+export interface CustomTimingVideoRequest extends Omit<BaseVideoRequest, 'voiceoverDuration'> {
+    flowType: 'multi-image' | 'stock-video';
+    voiceoverDuration: number;
+    timelineSlots: Array<{
+        assetUrl: string;
+        duration: number;
+        type: 'image' | 'video';
+    }>;
+    useCustomTiming: true;
+}
+
+// Extended video generation request that supports custom timing
+export type ExtendedVideoGenerationRequest = 
+    | SingleImageVideoRequest 
+    | MultiImageVideoRequest 
+    | StockVideoVideoRequest 
+    | CustomTimingVideoRequest;

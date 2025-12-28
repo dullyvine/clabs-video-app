@@ -4,23 +4,19 @@ import {
     ChatResponse, 
     ScriptGenerationRequest, 
     ScriptGenerationResponse,
-    GeminiChatModel
+    GeminiChatModel,
+    SmartChatRequest,
+    SmartChatResponse,
+    ChatModelsResponse
 } from 'shared/src/types';
-import { chat, generateScript, refineImagePrompt } from '../services/llm.service';
+import { chat, generateScript, refineImagePrompt, smartChat, getAvailableModels } from '../services/llm.service';
 
 export const chatRouter = express.Router();
 
-// Available Gemini models for chat/script writing
-const AVAILABLE_MODELS: Array<{ id: GeminiChatModel; name: string; description: string }> = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast and efficient for most tasks' },
-    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Best quality for complex writing' },
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', description: 'Lightweight and fast' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'High quality, longer context' }
-];
-
-// List available chat models
+// List available chat models (dynamically based on configured API keys)
 chatRouter.get('/models', (req, res) => {
-    res.json({ models: AVAILABLE_MODELS });
+    const modelsResponse: ChatModelsResponse = getAvailableModels();
+    res.json(modelsResponse);
 });
 
 // Chat endpoint - for conversational interaction
@@ -77,6 +73,23 @@ chatRouter.post('/refine-prompt', async (req, res) => {
     } catch (error: any) {
         console.error('[Chat Route] Prompt refinement error:', error);
         res.status(500).json({ error: error.message || 'Prompt refinement failed' });
+    }
+});
+
+// Smart chat endpoint - intelligent conversation with intent detection
+chatRouter.post('/smart-message', async (req, res) => {
+    try {
+        const request: SmartChatRequest = req.body;
+
+        if (!request.messages || request.messages.length === 0) {
+            return res.status(400).json({ error: 'Messages array is required' });
+        }
+
+        const response: SmartChatResponse = await smartChat(request);
+        res.json(response);
+    } catch (error: any) {
+        console.error('[Chat Route] Smart chat error:', error);
+        res.status(500).json({ error: error.message || 'Smart chat failed' });
     }
 });
 

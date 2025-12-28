@@ -12,7 +12,9 @@ import {
     StockVideoAsset,
     StockVideoOrientation,
     VideoQuality,
-    CaptionStyle
+    CaptionStyle,
+    ChatMessage,
+    TimelineSlot
 } from 'shared/src/types';
 import { api } from '@/lib/api';
 
@@ -27,6 +29,10 @@ export type SelectedStockVideo = StockVideoAsset & { slotId?: string };
 interface AppState {
     // Step tracking
     currentStep: number;
+
+    // Script Chat
+    chatHistory: ChatMessage[];
+    scriptWordCount: number; // Target word count for script generation
 
     // Voiceover
     script: string;
@@ -67,6 +73,10 @@ interface AppState {
     // Video quality
     videoQuality: VideoQuality;
 
+    // Timeline editor - custom asset timing
+    useCustomTiming: boolean;
+    timelineSlots: TimelineSlot[];
+
     // Captions
     captionsEnabled: boolean;
     captionStyle: CaptionStyle;
@@ -85,6 +95,8 @@ interface AppContextType extends AppState {
 
 const initialState: AppState = {
     currentStep: 0,
+    chatHistory: [],
+    scriptWordCount: 300,
     script: '',
     voiceService: null,
     voiceId: null,
@@ -108,6 +120,8 @@ const initialState: AppState = {
     videoJobId: null,
     finalVideoUrl: null,
     videoQuality: 'standard',
+    useCustomTiming: false,
+    timelineSlots: [],
     captionsEnabled: true,
     captionStyle: {
         fontSize: 'medium',
