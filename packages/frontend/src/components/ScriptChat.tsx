@@ -15,7 +15,7 @@ function parseMessageContent(content: string): React.ReactNode {
         // Code blocks
         if (part.startsWith('```') && part.endsWith('```')) {
             const code = part.slice(3, -3).replace(/^\w*\n/, ''); // Remove language identifier
-            return <pre key={idx} className="chat-code-block">{code}</pre>;
+            return <pre key={idx} className="chat-code-block"><code>{code}</code></pre>;
         }
         // Inline code
         if (part.startsWith('`') && part.endsWith('`')) {
@@ -121,7 +121,7 @@ export function ScriptChat({
     useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
         }
     }, [inputValue]);
 
@@ -253,18 +253,17 @@ export function ScriptChat({
             {/* Header */}
             <div className="script-chat-header">
                 <div className="script-chat-title-area">
-                    <span className="script-chat-icon">✨</span>
                     <span className="script-chat-title">AI Script Writer</span>
                     {lastResponse?.detectedIntent && (
                         <span className={`script-chat-intent-badge ${lastResponse.detectedIntent}`}>
-                            {lastResponse.detectedIntent === 'research' && '🔍 Research'}
-                            {lastResponse.detectedIntent === 'write' && '✍️ Writing'}
-                            {lastResponse.detectedIntent === 'refine' && '✨ Refining'}
-                            {lastResponse.detectedIntent === 'general' && '💬 Chat'}
+                            {lastResponse.detectedIntent === 'research' && 'Research'}
+                            {lastResponse.detectedIntent === 'write' && 'Writing'}
+                            {lastResponse.detectedIntent === 'refine' && 'Refining'}
+                            {lastResponse.detectedIntent === 'general' && 'Chat'}
                         </span>
                     )}
                     {lastResponse?.searchUsed && (
-                        <span className="script-chat-search-badge">🌐 Web</span>
+                        <span className="script-chat-search-badge">Web Search</span>
                     )}
                 </div>
                 <div className="script-chat-controls">
@@ -287,7 +286,7 @@ export function ScriptChat({
                                 <optgroup label="Google Gemini">
                                     {models.filter(m => m.provider === 'gemini').map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.name} {m.supportsSearch ? '🔍' : ''}
+                                            {m.name}
                                         </option>
                                     ))}
                                 </optgroup>
@@ -296,7 +295,7 @@ export function ScriptChat({
                                 <optgroup label="OpenRouter">
                                     {models.filter(m => m.provider === 'openrouter').map(m => (
                                         <option key={m.id} value={m.id}>
-                                            {m.name} {m.supportsSearch ? '🔍' : ''}
+                                            {m.name}
                                         </option>
                                     ))}
                                 </optgroup>
@@ -310,7 +309,7 @@ export function ScriptChat({
                             className={`script-chat-search-toggle ${useSearch ? 'active' : ''}`}
                             title={useSearch ? 'Web search enabled - click to disable' : 'Enable web search for current information'}
                         >
-                            🔍 Search
+                            Search
                         </button>
                     )}
                     {messages.length > 0 && (
@@ -350,6 +349,7 @@ export function ScriptChat({
             <div className="script-chat-messages">
                 {messages.length === 0 ? (
                     <div className="script-chat-empty">
+                        <div className="empty-icon">💬</div>
                         <h3>Your AI Writing Assistant</h3>
                         <p>Chat naturally to create your video script. I&apos;ll understand what you need!</p>
                         
@@ -376,7 +376,7 @@ export function ScriptChat({
                                 Research + Write
                             </button>
                             <button onClick={() => setInputValue('Write a 200 word script for a lifestyle video about morning routines')}>
-                                Short lifestyle video
+                                Lifestyle video
                             </button>
                         </div>
                     </div>
@@ -387,30 +387,32 @@ export function ScriptChat({
                                 key={index}
                                 className={`script-chat-message ${msg.role}`}
                             >
-                                <div className="script-chat-message-content">
-                                    {msg.role === 'assistant' ? parseMessageContent(msg.content) : msg.content}
-                                </div>
-                                {msg.role === 'assistant' && (
-                                    <div className="script-chat-message-footer">
-                                        <div className="script-chat-message-actions">
-                                            <button
-                                                onClick={() => handlePreviewScript(msg.content)}
-                                                className="script-chat-use-btn"
-                                            >
-                                                Use as Script
-                                            </button>
-                                            <button
-                                                onClick={() => copyToClipboard(msg.content)}
-                                                className="script-chat-copy-btn"
-                                            >
-                                                Copy
-                                            </button>
-                                        </div>
-                                        <span className="script-chat-word-count">
-                                            {msg.content.split(/\s+/).filter(w => w).length} words · {estimateDuration(msg.content.split(/\s+/).filter(w => w).length)}
-                                        </span>
+                                <div className="message-wrapper">
+                                    <div className="script-chat-message-content">
+                                        {msg.role === 'assistant' ? parseMessageContent(msg.content) : msg.content}
                                     </div>
-                                )}
+                                    {msg.role === 'assistant' && (
+                                        <div className="script-chat-message-footer">
+                                            <div className="script-chat-message-actions">
+                                                <button
+                                                    onClick={() => handlePreviewScript(msg.content)}
+                                                    className="script-chat-use-btn"
+                                                >
+                                                    Use as Script
+                                                </button>
+                                                <button
+                                                    onClick={() => copyToClipboard(msg.content)}
+                                                    className="script-chat-copy-btn"
+                                                >
+                                                    Copy
+                                                </button>
+                                            </div>
+                                            <span className="script-chat-word-count">
+                                                {msg.content.split(/\s+/).filter(w => w).length} words · {estimateDuration(msg.content.split(/\s+/).filter(w => w).length)}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         ))}
                         <div ref={messagesEndRef} />
@@ -420,10 +422,12 @@ export function ScriptChat({
                 {/* Loading indicator */}
                 {isLoading && (
                     <div className="script-chat-message assistant loading">
-                        <div className="script-chat-typing">
-                            <span></span>
-                            <span></span>
-                            <span></span>
+                        <div className="message-wrapper">
+                            <div className="script-chat-typing">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -444,24 +448,30 @@ export function ScriptChat({
                 </div>
             )}
 
-            {/* Input Area */}
-            <div className="script-chat-input-area">
-                <textarea
-                    ref={textareaRef}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Tell me what kind of script you need... (Press Enter to send)"
-                    rows={1}
-                    disabled={isLoading}
-                />
-                <Button
-                    onClick={handleSend}
-                    disabled={!inputValue.trim() || isLoading}
-                    isLoading={isLoading}
-                >
-                    Send
-                </Button>
+            {/* Input Area - Modern Design */}
+            <div className="script-chat-input-container">
+                <div className="script-chat-input-wrapper">
+                    <textarea
+                        ref={textareaRef}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Type your message here..."
+                        rows={1}
+                        disabled={isLoading}
+                        className="script-chat-input"
+                    />
+                    <button
+                        onClick={handleSend}
+                        disabled={!inputValue.trim() || isLoading}
+                        className="script-chat-send-btn"
+                        title="Send message"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             {/* Script Preview Modal */}
@@ -489,7 +499,7 @@ export function ScriptChat({
                             </span>
                         </div>
                         <div className="script-preview-content">
-                            {scriptToPreview.content}
+                            {parseMessageContent(scriptToPreview.content)}
                         </div>
                         <div className="script-preview-actions">
                             <Button
@@ -511,9 +521,3 @@ export function ScriptChat({
         </div>
     );
 }
-
-
-
-
-
-
