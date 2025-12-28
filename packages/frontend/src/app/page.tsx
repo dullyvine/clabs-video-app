@@ -31,7 +31,7 @@ export default function Home() {
 
   return (
     <main className="container">
-      <h1>hi</h1>
+    
       <QueuePanel onStartNew={handleStartNewProject} />
       <header className="app-header">
         <div className="app-header-content">
