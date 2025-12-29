@@ -1,12 +1,12 @@
 .caption-preview-container {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px;
+    gap: 8px;
+    padding: 10px;
     background: var(--card-bg, #1a1a2e);
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--border-color, #2a2a4a);
-    max-width: 440px;
+    max-width: 280px;
 }
 
 .caption-preview-header {

@@ -159,6 +159,15 @@ export interface Overlay {
     name?: string;
 }
 
+// Motion effect types for adding dynamic movement to static images
+export type MotionEffect = 'none' | 'zoom-in' | 'zoom-out' | 'pan' | 'float';
+
+export interface MotionEffectOption {
+    id: MotionEffect;
+    label: string;
+    description: string;
+}
+
 // Video generation types
 export type VideoFlowType = 'single-image' | 'multi-image' | 'stock-video';
 
@@ -167,6 +176,8 @@ interface BaseVideoRequest {
     voiceoverUrl: string;
     voiceoverDuration: number;
     overlays?: Overlay[];
+    // Motion effect for static images (adds subtle animation)
+    motionEffect?: MotionEffect;
     // Caption options
     captionsEnabled?: boolean;
     captionStyle?: CaptionStyle;

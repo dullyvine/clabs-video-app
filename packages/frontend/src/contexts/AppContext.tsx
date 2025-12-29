@@ -15,7 +15,8 @@ import {
     CaptionStyle,
     ChatMessage,
     TimelineSlot,
-    WordTimestamp
+    WordTimestamp,
+    MotionEffect
 } from 'shared/src/types';
 import { api } from '@/lib/api';
 
@@ -65,6 +66,9 @@ interface AppState {
 
     // Overlays
     overlays: Overlay[];
+
+    // Motion effect for static images
+    motionEffect: MotionEffect;
 
     // Video generation
     generatingVideo: boolean;
@@ -121,13 +125,14 @@ const initialState: AppState = {
     stockVideoCount: 10,
     stockOrientation: 'landscape',
     overlays: [],
+    motionEffect: 'none',
     generatingVideo: false,
     videoJobId: null,
     finalVideoUrl: null,
     videoQuality: 'standard',
     useCustomTiming: false,
     timelineSlots: [],
-    captionsEnabled: true,
+    captionsEnabled: false,
     captionStyle: {
         fontSize: 'medium',
         color: '#FFFFFF',

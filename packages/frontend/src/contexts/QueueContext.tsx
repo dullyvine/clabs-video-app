@@ -31,6 +31,8 @@ export interface QueuedProject {
         captionsEnabled: boolean;
         captionStyle: any;
         imageDuration?: number;
+        // Motion effect for static images
+        motionEffect?: string;
         // Transcription for accurate captions
         wordTimestamps?: Array<{ word: string; startTime: number; endTime: number; confidence: number }>;
         // Custom timeline data
@@ -214,6 +216,7 @@ export function QueueProvider({ children }: { children: ReactNode }) {
                         captionStyle: item.state.captionStyle,
                         script: item.state.script,
                         wordTimestamps: item.state.wordTimestamps, // Pass real timestamps for accurate captions
+                        motionEffect: item.state.motionEffect, // Motion effect for static images
                     };
 
                     if (item.state.selectedFlow === 'single-image') {

@@ -1,7 +1,7 @@
 import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
-import { BlendMode, Overlay } from 'shared/src/types';
+import { BlendMode, Overlay, MotionEffect } from 'shared/src/types';
 import { getTempFilePath } from './file.service';
 
 /**
@@ -759,6 +759,138 @@ export async function concatenateAudioFiles(
                     // Ignore cleanup errors
                 }
                 reject(new Error(`FFmpeg concatenation error: ${err.message}`));
+            })
+            .run();
+    });
+}
+
+/**
+ * Apply motion effect to a video using FFmpeg zoompan filter
+ * This adds subtle animation to static images to make them more dynamic
+ * 
+ * Motion effects:
+ * - zoom-in: Slow zoom towards center (Ken Burns style)
+ * - zoom-out: Start zoomed in, slowly zoom out
+ * - pan: Gentle horizontal drift left-to-right and back
+ * - float: Subtle circular floating motion (simulates handheld camera)
+ * 
+ * @param inputVideoPath - Path to the input video
+ * @param motionEffect - The type of motion effect to apply
+ * @param duration - Total duration of the video in seconds
+ * @param onProgress - Progress callback
+ * @returns Path to the output video with motion effect applied
+ */
+export async function applyMotionEffect(
+    inputVideoPath: string,
+    motionEffect: MotionEffect,
+    duration: number,
+    onProgress?: (progress: number) => void
+): Promise<string> {
+    // No effect or invalid effect - return original
+    if (!motionEffect || motionEffect === 'none') {
+        console.log('[Motion Effect] No motion effect requested, returning original video');
+        return inputVideoPath;
+    }
+
+    console.log(`[Motion Effect] Applying '${motionEffect}' effect to video (duration: ${duration}s)`);
+
+    // Get video info for proper scaling
+    const videoInfo = await getVideoInfo(inputVideoPath);
+    const { width, height } = videoInfo;
+    
+    // Ensure even dimensions (required for libx264)
+    const outWidth = Math.floor(width / 2) * 2;
+    const outHeight = Math.floor(height / 2) * 2;
+    
+    // Calculate frames - using 30fps
+    const fps = 30;
+    const totalFrames = Math.ceil(duration * fps);
+    
+    // Build video filter based on effect type
+    // For video input, we scale up the video first, then use crop with animated expressions
+    // to create smooth motion effects
+    let videoFilter: string;
+    
+    // Scale factor to allow room for motion (scaled up video that we'll crop from)
+    const scaleFactor = 1.15;
+    const scaledWidth = Math.round(outWidth * scaleFactor);
+    const scaledHeight = Math.round(outHeight * scaleFactor);
+    
+    // Motion amplitude (how much it can move)
+    const xAmplitude = Math.round((scaledWidth - outWidth) / 2);
+    const yAmplitude = Math.round((scaledHeight - outHeight) / 2);
+    
+    switch (motionEffect) {
+        case 'zoom-in':
+            // Slow zoom in - start showing full scaled image, gradually crop tighter
+            // Using smooth easing with 't' (time in seconds) and 'n' (frame number)
+            videoFilter = `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}+${xAmplitude}*2*(1-n/${totalFrames})':'${outHeight}+${yAmplitude}*2*(1-n/${totalFrames})':'(in_w-out_w)/2':'(in_h-out_h)/2',scale=${outWidth}:${outHeight}`;
+            break;
+            
+        case 'zoom-out':
+            // Slow zoom out - start cropped tight, gradually reveal more
+            videoFilter = `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}+${xAmplitude}*2*(n/${totalFrames})':'${outHeight}+${yAmplitude}*2*(n/${totalFrames})':'(in_w-out_w)/2':'(in_h-out_h)/2',scale=${outWidth}:${outHeight}`;
+            break;
+            
+        case 'pan':
+            // Gentle horizontal pan - smooth sine wave motion left-to-right and back
+            // Complete 2 full cycles over the duration for noticeable but smooth motion
+            videoFilter = `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}':'${outHeight}':'(in_w-${outWidth})/2+${xAmplitude}*sin(n*4*PI/${totalFrames})':'(in_h-${outHeight})/2'`;
+            break;
+            
+        case 'float':
+            // Subtle circular floating motion - like handheld camera breathing effect
+            // Very gentle circular path - stays close to center for smooth, easy viewing
+            // Use small amplitude (30% of available) for subtle movement
+            // Use 4*PI to get 2 smooth rotation cycles
+            const floatXAmp = Math.round(xAmplitude * 0.3);
+            const floatYAmp = Math.round(yAmplitude * 0.3);
+            videoFilter = `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}':'${outHeight}':'(in_w-${outWidth})/2+${floatXAmp}*sin(n*4*PI/${totalFrames})':'(in_h-${outHeight})/2+${floatYAmp}*cos(n*4*PI/${totalFrames})'`;
+            break;
+            
+        default:
+            console.log(`[Motion Effect] Unknown effect '${motionEffect}', returning original video`);
+            return inputVideoPath;
+    }
+
+    const outputPath = getTempFilePath('mp4');
+
+    return new Promise((resolve, reject) => {
+        ffmpeg()
+            .input(inputVideoPath)
+            .videoFilters([videoFilter])
+            .outputOptions([
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-c:a', 'copy',  // Copy audio without re-encoding
+                '-threads', '4',
+                '-t', String(duration)  // Ensure exact duration
+            ])
+            .output(outputPath)
+            .on('start', (cmdLine) => {
+                console.log(`[Motion Effect] FFmpeg command: ${cmdLine.substring(0, 300)}...`);
+            })
+            .on('progress', (progress) => {
+                if (onProgress && progress.percent) {
+                    onProgress(Math.min(99, Math.floor(progress.percent)));
+                }
+            })
+            .on('end', () => {
+                console.log(`[Motion Effect] Successfully applied '${motionEffect}' effect`);
+                // Clean up original video if it was a temp file
+                if (inputVideoPath.includes('temp') && inputVideoPath !== outputPath) {
+                    try { fs.unlinkSync(inputVideoPath); } catch { /* ignore */ }
+                }
+                resolve(outputPath);
+            })
+            .on('error', (err, stdout, stderr) => {
+                console.error(`[Motion Effect] Error:`, err.message);
+                console.error(`[Motion Effect] stderr:`, stderr);
+                // Fall back to returning original video on error
+                console.warn('[Motion Effect] Falling back to original video without motion effect');
+                resolve(inputVideoPath);
             })
             .run();
     });
