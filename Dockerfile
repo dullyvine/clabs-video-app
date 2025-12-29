@@ -1,14 +1,16 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
 # Stage 1: Build Stage
-FROM oven/bun:1.0.20-alpine AS builder
+FROM oven/bun:1.1-alpine AS builder
 
-# Install system dependencies including FFmpeg
+# Install system dependencies including FFmpeg and Node.js
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
     git \
-    ffmpeg
+    ffmpeg \
+    nodejs \
+    npm
 
 WORKDIR /app
 
@@ -38,14 +40,16 @@ WORKDIR /app/packages/frontend
 RUN bun run build
 
 # Stage 2: Production Runtime
-FROM oven/bun:1.0.20-alpine AS runtime
+FROM oven/bun:1.1-alpine AS runtime
 
-# Install FFmpeg and other runtime dependencies
+# Install FFmpeg, Node.js and other runtime dependencies
 RUN apk add --no-cache \
     ffmpeg \
     ffmpeg-libs \
     ca-certificates \
-    dumb-init
+    dumb-init \
+    nodejs \
+    npm
 
 WORKDIR /app
 
