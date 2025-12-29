@@ -1,55 +1,51 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
-# Stage 1: Build Stage
-FROM oven/bun:1.1-alpine AS builder
+# Stage 1: Build Stage - Using Node.js 18 for ffi-napi/vosk compatibility
+FROM node:18-alpine AS builder
 
-# Install system dependencies including FFmpeg and Node.js
+# Install system dependencies including FFmpeg
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
     git \
-    ffmpeg \
-    nodejs \
-    npm
+    ffmpeg
 
 WORKDIR /app
 
 # Copy package files for dependency installation
 COPY package.json ./
-COPY bun.lockb* ./
+COPY package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/frontend/package.json packages/frontend/
 COPY packages/backend/package.json packages/backend/
 
 # Install all dependencies
-RUN bun install
+RUN npm install
 
 # Copy source code
 COPY . .
 
 # Build shared types first
 WORKDIR /app/packages/shared
-RUN bun run build || true
+RUN npm run build || true
 
 # Build backend
 WORKDIR /app/packages/backend
-RUN bun run build
+RUN npm run build
 
 # Build frontend (Next.js)
 WORKDIR /app/packages/frontend
-RUN bun run build
+RUN npm run build
 
 # Stage 2: Production Runtime
-FROM oven/bun:1.1-alpine AS runtime
+FROM node:18-alpine AS runtime
 
-# Install FFmpeg, Node.js and other runtime dependencies
+# Install FFmpeg and other runtime dependencies
 RUN apk add --no-cache \
     ffmpeg \
     ffmpeg-libs \
     ca-certificates \
-    dumb-init \
-    nodejs \
-    npm
+    dumb-init
 
 WORKDIR /app
 
@@ -80,12 +76,12 @@ echo "Starting YouTube Video Generator..."
 
 # Start backend
 cd /app/packages/backend
-bun run start &
+npm run start &
 BACKEND_PID=$!
 
 # Start frontend
 cd /app/packages/frontend
-bun run start &
+npm run start &
 FRONTEND_PID=$!
 
 # Wait for both processes
