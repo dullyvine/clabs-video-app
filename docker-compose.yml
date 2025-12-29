@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  video-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: youtube-video-generator
+    ports:
+      - "3000:3000"  # Frontend
+      - "3001:3001"  # Backend API
+    environment:
+      # Backend Configuration
+      - PORT=3001
+      - NODE_ENV=production
+      
+      # API Keys - REPLACE WITH YOUR ACTUAL KEYS
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - AI33_API_KEY=${AI33_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      
+      # Model Defaults (Optional - customize as needed)
+      - DEFAULT_IMAGE_MODEL=black-forest-labs/flux-1.1-pro
+      - DEFAULT_LLM_MODEL=anthropic/claude-3.5-sonnet
+      
+      # Frontend Configuration
+      - FRONTEND_PORT=3000
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      
+    volumes:
+      # Persist temporary files and uploads
+      - ./packages/backend/temp:/app/packages/backend/temp
+      - ./packages/backend/uploads:/app/packages/backend/uploads
+      
+    restart: unless-stopped
+    
+    # Resource limits (adjust based on your server specs)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

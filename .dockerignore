@@ -1,0 +1,66 @@
+# Dependencies
+node_modules
+*/*/node_modules
+.pnp
+.pnp.js
+
+# Build outputs
+dist
+.next
+out
+build
+*.tsbuildinfo
+
+# Temporary and cache files
+packages/backend/temp/*
+packages/backend/uploads/*
+packages/backend/public/temp/*
+.turbo
+*.log
+
+# Testing
+coverage
+.nyc_output
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation (not needed in production)
+*.md
+!README.md
+
+# Vosk models (large files - download separately if needed)
+packages/backend/models/*
+
+# Development files
+docker-compose.yml
+.github
+.gitlab-ci.yml
+
+# Misc
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun-lockfile-*.log
