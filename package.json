@@ -6,15 +6,22 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently \"bun run dev:frontend\" \"bun run dev:backend\"",
-    "dev:frontend": "cd packages/frontend && bun run dev",
-    "dev:backend": "cd packages/backend && bun run dev",
-    "build": "bun run build:frontend && bun run build:backend",
-    "build:frontend": "cd packages/frontend && bun run build",
-    "build:backend": "cd packages/backend && bun run build"
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd packages/frontend && npm run dev",
+    "dev:backend": "cd packages/backend && npm run dev",
+    "build": "npm run build:shared && npm run build:frontend && npm run build:backend",
+    "build:shared": "cd packages/shared && npm run build || true",
+    "build:frontend": "cd packages/frontend && npm run build",
+    "build:backend": "cd packages/backend && npm run build",
+    "start:prod": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:frontend": "cd packages/frontend && npm run start",
+    "start:backend": "cd packages/backend && npm run start"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
     "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

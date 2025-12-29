@@ -1,0 +1,25 @@
+# Nixpacks configuration for YouTube Video Generator
+# This builds both frontend and backend in a single container
+
+[phases.setup]
+nixPkgs = ["ffmpeg", "nodejs_20", "nodePackages.npm"]
+
+[phases.install]
+cmds = [
+    "npm install"
+]
+
+[phases.build]
+cmds = [
+    "cd packages/shared && npm run build || true",
+    "cd packages/backend && npm run build",
+    "cd packages/frontend && npm run build"
+]
+
+[start]
+cmd = "npm run start:prod"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3001"
+FRONTEND_PORT = "3000"
