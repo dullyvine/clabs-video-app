@@ -1751,3 +1751,59 @@ option {
 .motion-effect-option.active::after {
     opacity: 1;
 }
+
+/* Export Step Section Cards */
+.export-step-section {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.export-step-section:last-child {
+    margin-bottom: 0;
+}
+
+.export-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.export-step-header h3 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.export-step-header .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.export-step-description {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    margin-bottom: var(--spacing-sm);
+}
+
+.export-step-content {
+    /* Inner content area */
+}

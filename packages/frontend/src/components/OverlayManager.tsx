@@ -93,9 +93,8 @@ export function OverlayManager() {
     };
 
     return (
-        <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-            <h3>Video Overlays</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)' }}>
+        <div>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)', fontSize: '0.8125rem' }}>
                 Layer short overlay videos (logos, particles, light leaks, etc.) on top of your base footage using blend modes.
             </p>
 

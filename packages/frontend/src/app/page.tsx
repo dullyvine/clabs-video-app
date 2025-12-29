@@ -2115,25 +2115,35 @@ function VideoGenerationStep() {
         </div>
       </div>
 
-      <OverlayManager />
+      {/* Step 1: Video Overlays */}
+      <div className="export-step-section">
+        <div className="export-step-header">
+          <span className="step-number">1</span>
+          <h3>Video Overlays</h3>
+        </div>
+        <OverlayManager />
+      </div>
 
-      {/* Motion Effect Selector - only for single-image and multi-image flows */}
+      {/* Step 2: Motion Effect Selector - only for single-image and multi-image flows */}
       {(app.selectedFlow === 'single-image' || app.selectedFlow === 'multi-image') && (
-        <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Motion Effect
-            <span style={{ 
-              fontSize: '0.625rem', 
-              fontWeight: '600', 
-              padding: '2px 6px', 
-              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 
-              color: 'white', 
-              borderRadius: '4px', 
-              textTransform: 'uppercase', 
-              letterSpacing: '0.5px' 
-            }}>Beta</span>
-          </h3>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)', fontSize: '0.875rem' }}>
+        <div className="export-step-section">
+          <div className="export-step-header">
+            <span className="step-number">2</span>
+            <h3>
+              Motion Effect
+              <span style={{ 
+                fontSize: '0.625rem', 
+                fontWeight: '600', 
+                padding: '2px 6px', 
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 
+                color: 'white', 
+                borderRadius: '4px', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.5px' 
+              }}>Beta</span>
+            </h3>
+          </div>
+          <p className="export-step-description">
             Add subtle animation to make static images more dynamic. The effect loops throughout the video.
             <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--warning)', marginTop: '4px' }}>⚠️ This feature is experimental and may not work perfectly.</span>
           </p>
@@ -2240,19 +2250,13 @@ function VideoGenerationStep() {
         </div>
       )}
 
-      <div className="section-divider" />
-
-      {/* Video Settings */}
-      <details className="video-settings-panel" open>
-        <summary className="video-settings-header">
-
-          <span>Video Settings</span>
-          <span className="video-settings-summary">
-            {app.videoQuality} quality{app.captionsEnabled ? ' · captions' : ''}{app.motionEffect && app.motionEffect !== 'none' ? ` · ${app.motionEffect}` : ''}
-          </span>
-        </summary>
-
-        <div className="video-settings-content">
+      {/* Step 3: Video Settings */}
+      <div className="export-step-section">
+        <div className="export-step-header">
+          <span className="step-number">{(app.selectedFlow === 'single-image' || app.selectedFlow === 'multi-image') ? '3' : '2'}</span>
+          <h3>Video Settings</h3>
+        </div>
+        <div className="export-step-content">
           {/* Quality Selector */}
           <div className="settings-group">
             <label className="form-label">Video Quality</label>
@@ -2352,26 +2356,27 @@ function VideoGenerationStep() {
             />
           )}
         </div>
-      </details>
+      </div>
 
-      {/* Asset Summary */}
-      <div style={{ marginBottom: 'var(--spacing-lg)' }}>
-        <div className="section-header" style={{ marginBottom: 'var(--spacing-sm)' }}>
-          <div className="section-title">
-            <h3 style={{ fontSize: '0.9375rem' }}>Project Assets</h3>
+      {/* Step 4: Project Assets Summary */}
+      <div className="export-step-section">
+        <div className="export-step-header">
+          <span className="step-number">{(app.selectedFlow === 'single-image' || app.selectedFlow === 'multi-image') ? '4' : '3'}</span>
+          <h3>Project Assets</h3>
+          <div style={{ marginLeft: 'auto' }}>
+            <DownloadAllButton 
+              files={allDownloadFiles}
+              zipFilename="video-project-assets.zip"
+              label="Download All"
+              size="sm"
+              variant="secondary"
+            />
           </div>
-          <DownloadAllButton 
-            files={allDownloadFiles}
-            zipFilename="video-project-assets.zip"
-            label="Download All Assets"
-            size="sm"
-            variant="secondary"
-          />
         </div>
 
         {/* Voiceover Preview */}
         {app.voiceoverUrl && (
-          <div className="audio-player" style={{ marginBottom: 'var(--spacing-sm)' }}>
+          <div className="audio-player" style={{ marginBottom: 'var(--spacing-sm)', marginTop: 0 }}>
             <div className="audio-player-header">
               <span className="audio-player-title">
                 Voiceover
@@ -2394,9 +2399,9 @@ function VideoGenerationStep() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Images ({app.generatedImages.length})</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.generatedImages.slice(0, 6).map((img: any, i) => (
-                <div key={i} style={{ aspectRatio: '16/9', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
+                <div key={i} style={{ aspectRatio: '16/9', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden' }}>
                   <img src={toAssetUrl(img.imageUrl)} alt={`Generated ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
               ))}
@@ -2415,9 +2420,9 @@ function VideoGenerationStep() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--spacing-xs)' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: '500' }}>Stock Videos ({app.selectedVideos.length})</span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 'var(--spacing-xs)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 'var(--spacing-xs)' }}>
               {app.selectedVideos.slice(0, 6).map((video, i) => (
-                <div key={video.id || i} style={{ aspectRatio: '16/9', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden', position: 'relative' }}>
+                <div key={video.id || i} style={{ aspectRatio: '16/9', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-xs)', overflow: 'hidden', position: 'relative' }}>
                   <video 
                     src={video.url} 
                     poster={video.thumbnailUrl}
