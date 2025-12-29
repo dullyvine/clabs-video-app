@@ -21,8 +21,8 @@ const FONT_SIZES = {
 };
 
 // Preview scale factor (preview is smaller than 1920x1080)
-const PREVIEW_WIDTH = 400;
-const PREVIEW_HEIGHT = 225;
+const PREVIEW_WIDTH = 256;
+const PREVIEW_HEIGHT = 144;
 const SCALE_FACTOR = PREVIEW_WIDTH / 1920;
 
 /**

@@ -100,7 +100,7 @@ export function OverlayManager() {
             </p>
 
             {basePreview ? (
-                <div style={{ position: 'relative', width: '100%', maxWidth: '400px', paddingTop: 'min(56.25%, 225px)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 'var(--spacing-md)' }}>
+                <div style={{ position: 'relative', width: '100%', maxWidth: '240px', paddingTop: 'min(56.25%, 135px)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: 'var(--spacing-md)' }}>
                     <img
                         src={basePreview}
                         alt="Base preview"

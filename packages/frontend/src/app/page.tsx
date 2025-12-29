@@ -23,7 +23,9 @@ import {
   StockVideoOrientation,
   StockVideoProvider,
   StockVideoSlot,
-  TimelineSlot
+  TimelineSlot,
+  MotionEffect,
+  MotionEffectOption
 } from 'shared/src/types';
 
 export default function Home() {
@@ -1914,6 +1916,15 @@ const VIDEO_QUALITY_OPTIONS = [
   { value: 'ultra', label: 'Ultra (1080p HQ)', description: 'Best quality' }
 ];
 
+// Motion effect options for static images
+const MOTION_EFFECT_OPTIONS: MotionEffectOption[] = [
+  { id: 'none', label: 'None', description: 'Static image' },
+  { id: 'zoom-in', label: 'Slow Zoom In', description: 'Ken Burns style zoom' },
+  { id: 'zoom-out', label: 'Slow Zoom Out', description: 'Reveal effect' },
+  { id: 'pan', label: 'Gentle Pan', description: 'Horizontal drift' },
+  { id: 'float', label: 'Subtle Float', description: 'Breathing effect' }
+];
+
 // Step 4: Video Generation
 function VideoGenerationStep() {
   const app = useApp();
@@ -2024,6 +2035,7 @@ function VideoGenerationStep() {
         captionStyle: app.captionStyle,
         imageDuration: app.imageDuration,
         wordTimestamps: app.wordTimestamps, // Pass real timestamps for accurate captions
+        motionEffect: app.motionEffect, // Motion effect for static images
       };
 
       if (app.selectedFlow === 'single-image') {
@@ -2105,6 +2117,129 @@ function VideoGenerationStep() {
 
       <OverlayManager />
 
+      {/* Motion Effect Selector - only for single-image and multi-image flows */}
+      {(app.selectedFlow === 'single-image' || app.selectedFlow === 'multi-image') && (
+        <div style={{ marginBottom: 'var(--spacing-lg)' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Motion Effect
+            <span style={{ 
+              fontSize: '0.625rem', 
+              fontWeight: '600', 
+              padding: '2px 6px', 
+              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 
+              color: 'white', 
+              borderRadius: '4px', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.5px' 
+            }}>Beta</span>
+          </h3>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-sm)', fontSize: '0.875rem' }}>
+            Add subtle animation to make static images more dynamic. The effect loops throughout the video.
+            <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--warning)', marginTop: '4px' }}>⚠️ This feature is experimental and may not work perfectly.</span>
+          </p>
+          
+          {/* Preview with motion effect */}
+          {app.generatedImages.length > 0 && (
+            <div 
+              className="motion-preview-container"
+              style={{ 
+                position: 'relative', 
+                width: '100%', 
+                maxWidth: '240px', 
+                aspectRatio: '16/9',
+                borderRadius: 'var(--radius-md)', 
+                overflow: 'hidden', 
+                marginBottom: 'var(--spacing-md)',
+                background: 'var(--bg-tertiary)'
+              }}
+            >
+              <img
+                src={app.generatedImages[0]?.imageUrl?.startsWith('http') 
+                  ? app.generatedImages[0].imageUrl 
+                  : `http://localhost:3001${app.generatedImages[0]?.imageUrl}`}
+                alt="Motion preview"
+                className={`motion-preview-image motion-effect-${app.motionEffect}`}
+                style={{ 
+                  width: '100%', 
+                  height: '100%', 
+                  objectFit: 'cover',
+                  transformOrigin: 'center center'
+                }}
+              />
+              <div style={{
+                position: 'absolute',
+                bottom: '8px',
+                left: '8px',
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                padding: '4px 8px',
+                borderRadius: 'var(--radius-xs)',
+                fontSize: '0.75rem'
+              }}>
+                {MOTION_EFFECT_OPTIONS.find(o => o.id === app.motionEffect)?.label || 'None'}
+              </div>
+            </div>
+          )}
+
+          {/* Motion effect options */}
+          <div className="motion-effect-options" style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', 
+            gap: 'var(--spacing-sm)' 
+          }}>
+            {MOTION_EFFECT_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                onClick={() => app.updateState({ motionEffect: option.id })}
+                className={`motion-effect-option ${app.motionEffect === option.id ? 'active' : ''}`}
+                style={{
+                  padding: 'var(--spacing-sm) var(--spacing-md)',
+                  border: app.motionEffect === option.id 
+                    ? '2px solid var(--accent-color)' 
+                    : '1px solid var(--border-color)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: app.motionEffect === option.id 
+                    ? 'var(--accent-color-alpha, rgba(99, 102, 241, 0.15))' 
+                    : 'var(--bg-secondary)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'all 0.2s ease',
+                  color: 'var(--text-primary)',
+                  position: 'relative'
+                }}
+              >
+                {/* Selected checkmark indicator */}
+                {app.motionEffect === option.id && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '6px',
+                    right: '6px',
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    background: 'var(--accent-color, #6366f1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '11px',
+                    color: 'white',
+                    fontWeight: 'bold'
+                  }}>
+                    ✓
+                  </span>
+                )}
+                <div style={{ fontWeight: '500', fontSize: '0.875rem', marginBottom: '2px', color: 'inherit' }}>
+                  {option.label}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {option.description}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="section-divider" />
 
       {/* Video Settings */}
@@ -2113,7 +2248,7 @@ function VideoGenerationStep() {
 
           <span>Video Settings</span>
           <span className="video-settings-summary">
-            {app.videoQuality} quality{app.captionsEnabled ? ' · captions' : ''}
+            {app.videoQuality} quality{app.captionsEnabled ? ' · captions' : ''}{app.motionEffect && app.motionEffect !== 'none' ? ` · ${app.motionEffect}` : ''}
           </span>
         </summary>
 
@@ -2144,8 +2279,20 @@ function VideoGenerationStep() {
                 onChange={(e) => app.updateState({ captionsEnabled: e.target.checked })}
               />
               <span className="caption-toggle-text">
-                <strong>Auto-burn captions</strong>
-                <span className="caption-toggle-hint">Burn subtitles directly into video</span>
+                <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  Auto-burn captions
+                  <span style={{ 
+                    fontSize: '0.5625rem', 
+                    fontWeight: '600', 
+                    padding: '1px 5px', 
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 
+                    color: 'white', 
+                    borderRadius: '3px', 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.5px' 
+                  }}>Beta</span>
+                </strong>
+                <span className="caption-toggle-hint">Burn subtitles directly into video (experimental)</span>
               </span>
             </label>
           </div>
@@ -2572,7 +2719,19 @@ function TimelineSection() {
               onChange={(e) => setShowAdvancedTimeline(e.target.checked)}
               style={{ width: '16px', height: '16px' }}
             />
-            Advanced Editor
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Advanced Editor
+              <span style={{ 
+                fontSize: '0.5625rem', 
+                fontWeight: '600', 
+                padding: '1px 5px', 
+                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 
+                color: 'white', 
+                borderRadius: '3px', 
+                textTransform: 'uppercase', 
+                letterSpacing: '0.5px' 
+              }}>Beta</span>
+            </span>
           </label>
         </div>
       </div>
