@@ -14,12 +14,13 @@ WORKDIR /app
 
 # Copy package files for dependency installation
 COPY package.json ./
+COPY bun.lockb* ./
 COPY packages/shared/package.json packages/shared/
 COPY packages/frontend/package.json packages/frontend/
 COPY packages/backend/package.json packages/backend/
 
 # Install all dependencies
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy source code
 COPY . .
