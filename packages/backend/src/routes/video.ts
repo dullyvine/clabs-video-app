@@ -7,7 +7,8 @@ import {
     VideoGenerationResponse,
     JobStatus,
     VideoQuality,
-    VideoQualitySettings
+    VideoQualitySettings,
+    MotionEffect
 } from 'shared/src/types';
 import {
     generateSingleImageVideo,
@@ -15,7 +16,8 @@ import {
     generateStockVideoComposition,
     calculateSmartVideoTiming,
     getAudioDuration,
-    burnCaptions
+    burnCaptions,
+    applyMotionEffect
 } from '../services/ffmpeg.service';
 import { createJob, updateJob, getJob } from '../utils/jobs';
 import { getTempFilePath, trackFile } from '../services/file.service';
@@ -376,6 +378,29 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             );
         } else {
             throw new Error('Invalid flow type');
+        }
+
+        // Apply motion effect for single-image and multi-image flows (not stock-video)
+        // Motion effects add subtle animation to static images
+        if (request.motionEffect && request.motionEffect !== 'none' && request.flowType !== 'stock-video') {
+            console.log(`[Video Generation] Applying motion effect: ${request.motionEffect}`);
+            updateJob(jobId, { progress: 75 });
+            
+            try {
+                videoPath = await applyMotionEffect(
+                    videoPath,
+                    request.motionEffect,
+                    request.voiceoverDuration,
+                    (progress) => {
+                        const scaledProgress = 75 + Math.floor(progress * 0.1);
+                        updateJob(jobId, { progress: Math.min(84, scaledProgress) });
+                    }
+                );
+                console.log(`[Video Generation] Motion effect applied successfully`);
+            } catch (motionError: any) {
+                console.error(`[Video Generation] Motion effect failed:`, motionError.message);
+                // Continue without motion effect rather than failing the whole job
+            }
         }
 
         // Burn captions if enabled

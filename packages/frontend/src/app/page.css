@@ -1634,3 +1634,176 @@ option {
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================
+   Motion Effect Preview Animations
+   ============================================ */
+
+/* Container overflow hidden is set inline, but ensure smooth animations */
+.motion-preview-container {
+    will-change: transform;
+}
+
+.motion-preview-image {
+    will-change: transform;
+}
+
+/* No motion effect */
+.motion-effect-none {
+    animation: none;
+    transform: scale(1);
+}
+
+/* Slow Zoom In - Ken Burns style */
+@keyframes motionZoomIn {
+    0% {
+        transform: scale(1);
+    }
+    100% {
+        transform: scale(1.15);
+    }
+}
+
+.motion-effect-zoom-in {
+    animation: motionZoomIn 8s ease-in-out infinite alternate;
+}
+
+/* Slow Zoom Out */
+@keyframes motionZoomOut {
+    0% {
+        transform: scale(1.15);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.motion-effect-zoom-out {
+    animation: motionZoomOut 8s ease-in-out infinite alternate;
+}
+
+/* Gentle Pan - horizontal drift */
+@keyframes motionPan {
+    0%, 100% {
+        transform: scale(1.1) translateX(0);
+    }
+    50% {
+        transform: scale(1.1) translateX(3%);
+    }
+}
+
+.motion-effect-pan {
+    animation: motionPan 6s ease-in-out infinite;
+}
+
+/* Subtle Float - circular breathing motion */
+@keyframes motionFloat {
+    0%, 100% {
+        transform: scale(1.08) translate(0, 0);
+    }
+    25% {
+        transform: scale(1.08) translate(1.5%, 1%);
+    }
+    50% {
+        transform: scale(1.08) translate(0, 2%);
+    }
+    75% {
+        transform: scale(1.08) translate(-1.5%, 1%);
+    }
+}
+
+.motion-effect-float {
+    animation: motionFloat 5s ease-in-out infinite;
+}
+
+/* Motion effect option buttons */
+.motion-effect-option {
+    position: relative;
+    overflow: hidden;
+    color: var(--text-primary);
+}
+
+.motion-effect-option:hover {
+    border-color: var(--accent-color) !important;
+    background: var(--bg-tertiary) !important;
+    color: var(--text-primary);
+}
+
+.motion-effect-option.active {
+    box-shadow: 0 0 0 1px var(--accent-color);
+    color: var(--text-primary);
+}
+
+.motion-effect-option::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, transparent 50%, rgba(var(--accent-rgb), 0.1) 100%);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+}
+
+.motion-effect-option:hover::after,
+.motion-effect-option.active::after {
+    opacity: 1;
+}
+
+/* Export Step Section Cards */
+.export-step-section {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.export-step-section:last-child {
+    margin-bottom: 0;
+}
+
+.export-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.export-step-header h3 {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.export-step-header .step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.export-step-description {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    margin-bottom: var(--spacing-sm);
+}
+
+.export-step-content {
+    /* Inner content area */
+}
