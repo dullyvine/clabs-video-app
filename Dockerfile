@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
 
-# Stage 1: Build Backend with Node 20
-FROM node:20-alpine AS backend-builder
+# Stage 1: Build Backend with Node 20 (using slim/Debian for glibc compatibility with onnxruntime)
+FROM node:20-slim AS backend-builder
 
 WORKDIR /app
 
@@ -21,8 +21,8 @@ RUN npm install
 COPY packages/backend ./
 RUN npm run build
 
-# Stage 2: Build Frontend with Node 20 (Next.js 16 compatible)
-FROM node:20-alpine AS frontend-builder
+# Stage 2: Build Frontend with Node 20
+FROM node:20-slim AS frontend-builder
 
 WORKDIR /app
 
@@ -42,15 +42,15 @@ RUN npm install
 COPY packages/frontend ./
 RUN npm run build
 
-# Stage 3: Production Runtime with Node 20
-FROM node:20-alpine AS runtime
+# Stage 3: Production Runtime with Node 20 (Debian-based for glibc)
+FROM node:20-slim AS runtime
 
 # Install FFmpeg and runtime dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
-    ffmpeg-libs \
     ca-certificates \
-    dumb-init
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -79,7 +79,7 @@ EXPOSE 3000 3001
 
 # Create startup script
 COPY <<'EOF' /app/start.sh
-#!/bin/sh
+#!/bin/bash
 set -e
 
 echo "Starting YouTube Video Generator..."
@@ -111,4 +111,4 @@ RUN chmod +x /app/start.sh
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["/bin/sh", "/app/start.sh"]
+CMD ["/bin/bash", "/app/start.sh"]
