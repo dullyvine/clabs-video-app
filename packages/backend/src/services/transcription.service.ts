@@ -110,23 +110,29 @@ function loadAudioData(wavPath: string): Float32Array {
     // Convert to 32-bit float
     wav.toBitDepth('32f');
     
-    // Get samples
-    let samples = wav.getSamples() as Float32Array | Float32Array[];
+    // Get samples - wavefile returns Float64Array after toBitDepth('32f'), we need to convert
+    const rawSamples = wav.getSamples();
     
-    // If stereo, merge channels
-    if (Array.isArray(samples)) {
-        if (samples.length > 1) {
+    // Handle stereo vs mono
+    if (Array.isArray(rawSamples)) {
+        // Stereo - merge channels
+        const channel0 = rawSamples[0] as unknown as number[];
+        const channel1 = rawSamples[1] as unknown as number[];
+        
+        if (rawSamples.length > 1 && channel1) {
             const SCALING_FACTOR = Math.sqrt(2);
-            const merged = new Float32Array(samples[0].length);
-            for (let i = 0; i < samples[0].length; i++) {
-                merged[i] = SCALING_FACTOR * (samples[0][i] + samples[1][i]) / 2;
+            const merged = new Float32Array(channel0.length);
+            for (let i = 0; i < channel0.length; i++) {
+                merged[i] = SCALING_FACTOR * (channel0[i] + channel1[i]) / 2;
             }
             return merged;
         }
-        return samples[0];
+        // Mono in array form
+        return new Float32Array(channel0);
     }
     
-    return samples;
+    // Single channel - convert to Float32Array
+    return new Float32Array(rawSamples as unknown as number[]);
 }
 
 /**
@@ -220,16 +226,19 @@ export async function transcribeAudio(
         const audioData = loadAudioData(wavPath);
         
         // Transcribe with word-level timestamps
-        const result = await transcriber(audioData, {
+        const rawResult = await transcriber(audioData, {
             return_timestamps: 'word',
             chunk_length_s: 30,
             stride_length_s: 5
         });
 
+        // Handle both single result and array result types
+        const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
+
         // Convert Whisper output to our WordTimestamp format
         const words: WordTimestamp[] = [];
         
-        if (result.chunks && Array.isArray(result.chunks)) {
+        if (result && 'chunks' in result && result.chunks && Array.isArray(result.chunks)) {
             for (const chunk of result.chunks) {
                 if (chunk.text && chunk.timestamp) {
                     const [start, end] = chunk.timestamp;
@@ -243,7 +252,7 @@ export async function transcribeAudio(
             }
         }
 
-        const fullText = result.text || words.map(w => w.word).join(' ');
+        const fullText = (result && 'text' in result ? result.text : '') || words.map(w => w.word).join(' ');
 
         // Calculate duration from last word
         const duration = words.length > 0 
