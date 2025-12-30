@@ -10,6 +10,7 @@
     },
     "dependencies": {
         "@google/generative-ai": "^0.24.1",
+        "@huggingface/transformers": "^3.0.0",
         "cors": "^2.8.5",
         "dotenv": "^17.2.3",
         "express": "^4.18.2",
@@ -18,7 +19,7 @@
         "shared": "file:../shared",
         "unzipper": "^0.12.3",
         "uuid": "^9.0.1",
-        "vosk": "^0.3.39"
+        "wavefile": "^11.0.0"
     },
     "devDependencies": {
         "@types/cors": "^2.8.17",

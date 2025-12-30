@@ -1,13 +1,7 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
 
-# Stage 1: Build Backend with Node 16 (vosk/ffi-napi compatible)
-FROM node:16-alpine AS backend-builder
-
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    git
+# Stage 1: Build Backend with Node 20
+FROM node:20-alpine AS backend-builder
 
 WORKDIR /app
 
@@ -19,7 +13,7 @@ COPY packages/backend/package.json packages/backend/
 # Copy shared source for building
 COPY packages/shared ./packages/shared
 
-# Install backend dependencies (includes vosk with ffi-napi)
+# Install backend dependencies
 WORKDIR /app/packages/backend
 RUN npm install
 
@@ -60,7 +54,7 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy built backend with node_modules (includes compiled vosk - may not work on Node 20)
+# Copy built backend with node_modules
 COPY --from=backend-builder /app/packages/backend ./packages/backend
 COPY --from=backend-builder /app/packages/shared ./packages/shared
 
