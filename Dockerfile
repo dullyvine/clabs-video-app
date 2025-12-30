@@ -1,5 +1,4 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
-# Using separate Node versions: Node 16 for backend (vosk), Node 20 for frontend (Next.js 16)
 
 # Stage 1: Build Backend with Node 16 (vosk/ffi-napi compatible)
 FROM node:16-alpine AS backend-builder
@@ -45,12 +44,12 @@ COPY packages/shared ./packages/shared
 WORKDIR /app/packages/frontend
 RUN npm install
 
-# Copy frontend source and build
+# Copy frontend source and build with standalone output
 COPY packages/frontend ./
 RUN npm run build
 
-# Stage 3: Production Runtime with Node 16 (for vosk compatibility)
-FROM node:16-alpine AS runtime
+# Stage 3: Production Runtime with Node 20
+FROM node:20-alpine AS runtime
 
 # Install FFmpeg and runtime dependencies
 RUN apk add --no-cache \
@@ -61,11 +60,11 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy built backend with node_modules (includes compiled vosk)
+# Copy built backend with node_modules (includes compiled vosk - may not work on Node 20)
 COPY --from=backend-builder /app/packages/backend ./packages/backend
 COPY --from=backend-builder /app/packages/shared ./packages/shared
 
-# Copy built frontend (standalone Next.js build)
+# Copy built frontend
 COPY --from=frontend-builder /app/packages/frontend/.next ./packages/frontend/.next
 COPY --from=frontend-builder /app/packages/frontend/public ./packages/frontend/public
 COPY --from=frontend-builder /app/packages/frontend/package.json ./packages/frontend/
@@ -90,20 +89,28 @@ COPY <<'EOF' /app/start.sh
 set -e
 
 echo "Starting YouTube Video Generator..."
+echo "Node version: $(node --version)"
 
-# Start backend
+# Start backend on port 3001
 cd /app/packages/backend
-npm run start &
+echo "Starting backend..."
+node dist/server.js &
 BACKEND_PID=$!
 
-# Start frontend
+# Give backend time to start
+sleep 2
+
+# Start frontend on port 3000
 cd /app/packages/frontend
-npm run start &
+echo "Starting frontend..."
+npx next start -p 3000 &
 FRONTEND_PID=$!
 
+echo "Backend PID: $BACKEND_PID"
+echo "Frontend PID: $FRONTEND_PID"
+
 # Wait for both processes
-wait $BACKEND_PID
-wait $FRONTEND_PID
+wait $BACKEND_PID $FRONTEND_PID
 EOF
 
 RUN chmod +x /app/start.sh
