@@ -1,46 +1,58 @@
 # Multi-stage Dockerfile for YouTube Video Generator Monorepo
-# Stage 1: Build Stage - Using Node.js 18 for ffi-napi/vosk compatibility
-FROM node:18-alpine AS builder
+# Using separate Node versions: Node 16 for backend (vosk), Node 20 for frontend (Next.js 16)
 
-# Install system dependencies including FFmpeg
+# Stage 1: Build Backend with Node 16 (vosk/ffi-napi compatible)
+FROM node:16-alpine AS backend-builder
+
 RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    git \
-    ffmpeg
+    git
 
 WORKDIR /app
 
-# Copy package files for dependency installation
+# Copy package files
 COPY package.json ./
-COPY package-lock.json* ./
 COPY packages/shared/package.json packages/shared/
-COPY packages/frontend/package.json packages/frontend/
 COPY packages/backend/package.json packages/backend/
 
-# Install all dependencies
+# Copy shared source for building
+COPY packages/shared ./packages/shared
+
+# Install backend dependencies (includes vosk with ffi-napi)
+WORKDIR /app/packages/backend
 RUN npm install
 
-# Copy source code
-COPY . .
-
-# Build shared types first
-WORKDIR /app/packages/shared
-RUN npm run build || true
-
-# Build backend
-WORKDIR /app/packages/backend
+# Copy backend source and build
+COPY packages/backend ./
 RUN npm run build
 
-# Build frontend (Next.js)
+# Stage 2: Build Frontend with Node 20 (Next.js 16 compatible)
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/frontend/package.json packages/frontend/
+
+# Copy shared source
+COPY packages/shared ./packages/shared
+
+# Install frontend dependencies
 WORKDIR /app/packages/frontend
+RUN npm install
+
+# Copy frontend source and build
+COPY packages/frontend ./
 RUN npm run build
 
-# Stage 2: Production Runtime
-FROM node:18-alpine AS runtime
+# Stage 3: Production Runtime with Node 16 (for vosk compatibility)
+FROM node:16-alpine AS runtime
 
-# Install FFmpeg and other runtime dependencies
+# Install FFmpeg and runtime dependencies
 RUN apk add --no-cache \
     ffmpeg \
     ffmpeg-libs \
@@ -49,10 +61,15 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy built artifacts from builder
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/node_modules ./node_modules
+# Copy built backend with node_modules (includes compiled vosk)
+COPY --from=backend-builder /app/packages/backend ./packages/backend
+COPY --from=backend-builder /app/packages/shared ./packages/shared
+
+# Copy built frontend (standalone Next.js build)
+COPY --from=frontend-builder /app/packages/frontend/.next ./packages/frontend/.next
+COPY --from=frontend-builder /app/packages/frontend/public ./packages/frontend/public
+COPY --from=frontend-builder /app/packages/frontend/package.json ./packages/frontend/
+COPY --from=frontend-builder /app/packages/frontend/node_modules ./packages/frontend/node_modules
 
 # Create necessary directories
 RUN mkdir -p packages/backend/temp && \
