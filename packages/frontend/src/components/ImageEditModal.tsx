@@ -61,7 +61,8 @@ export function ImageEditModal({ imageUrl, imageIndex, onClose, onSave }: ImageE
         fetchModels();
     }, []);
 
-    const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+    // Relative URLs work - Next.js rewrites proxy /temp/* and /uploads/* to backend
+    const toAssetUrl = (url: string) => url;
 
     const currentModelSupportsAspectRatio = availableModels.find(m => m.id === selectedModel)?.supportsAspectRatio ?? false;
 

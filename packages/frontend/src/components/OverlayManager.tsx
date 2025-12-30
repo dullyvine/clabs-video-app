@@ -19,12 +19,11 @@ const BLEND_OPTIONS: BlendMode[] = [
 /**
  * Convert relative URLs to absolute backend URLs
  * Overlays are stored in /temp/ directory on the backend
+ * Relative URLs work because Next.js rewrites proxy /temp/* and /uploads/* to backend
  */
 const toAbsoluteUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('http')) return url;
-    // Both /temp/ and /uploads/ paths are served from backend
-    return `http://localhost:3001${url}`;
+    return url;
 };
 
 export function OverlayManager() {

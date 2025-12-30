@@ -166,8 +166,8 @@ function VoicePreviewButton({ voiceId, voiceService, geminiModel }: { voiceId: s
         voiceId,
         model: voiceService === 'gemini' ? geminiModel : undefined,
       });
-      const fullUrl = 'http://localhost:3001' + result.audioUrl;
-      setPreviewUrl(fullUrl);
+      // Use relative URL - Next.js rewrites proxy /temp/* to backend
+      setPreviewUrl(result.audioUrl);
       
       // Auto-play the preview
       setTimeout(() => {
@@ -309,10 +309,9 @@ function ScriptVoiceoverStep() {
       
       const finalId = processLog.addEntry('Finalizing audio file...', 'in-progress');
       
-      const voiceoverUrl = 'http://localhost:3001' + result.audioUrl;
-      
+      // Use relative URL - Next.js rewrites proxy /temp/* to backend
       app.updateState({
-        voiceoverUrl,
+        voiceoverUrl: result.audioUrl,
         voiceoverDuration: result.duration,
       });
 
@@ -701,7 +700,8 @@ function AssetGenerationStep() {
     return [...app.generatedImages].sort((a: any, b: any) => (a.promptIndex ?? 0) - (b.promptIndex ?? 0));
   }, [app.generatedImages]);
   const hasImages = sortedImages.length > 0;
-  const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+  // Relative URLs work - Next.js rewrites proxy /temp/* and /uploads/* to backend
+  const toAssetUrl = (url: string) => url;
 
   // Prepare download files for zip
   const downloadFiles = React.useMemo(() => {
@@ -1937,7 +1937,8 @@ function VideoGenerationStep() {
   const [submittedToQueue, setSubmittedToQueue] = useState(false);
   const [currentQueuedProjectId, setCurrentQueuedProjectId] = useState<string | null>(null);
   const processLog = useProcessLog();
-  const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+  // Relative URLs work - Next.js rewrites proxy /temp/* and /uploads/* to backend
+  const toAssetUrl = (url: string) => url;
 
   // Prepare all assets for download
   const allDownloadFiles = React.useMemo(() => {
@@ -2164,9 +2165,7 @@ function VideoGenerationStep() {
               }}
             >
               <img
-                src={app.generatedImages[0]?.imageUrl?.startsWith('http') 
-                  ? app.generatedImages[0].imageUrl 
-                  : `http://localhost:3001${app.generatedImages[0]?.imageUrl}`}
+                src={app.generatedImages[0]?.imageUrl}
                 alt="Motion preview"
                 className={`motion-preview-image motion-effect-${app.motionEffect}`}
                 style={{ 
@@ -2560,7 +2559,8 @@ function VideoGenerationStep() {
 function TimelineSection() {
   const app = useApp();
   const [showAdvancedTimeline, setShowAdvancedTimeline] = useState(false);
-  const toAssetUrl = (url: string) => (url.startsWith('http') ? url : `http://localhost:3001${url}`);
+  // Relative URLs work - Next.js rewrites proxy /temp/* and /uploads/* to backend
+  const toAssetUrl = (url: string) => url;
 
   // Build timeline slots from current assets
   const buildTimelineSlots = useCallback((): TimelineEditorSlot[] => {
@@ -2654,7 +2654,7 @@ function TimelineSection() {
     const timelineSlots: TimelineSlot[] = newSlots.map((slot, idx) => ({
       id: slot.id,
       type: slot.type,
-      assetUrl: slot.assetUrl.replace('http://localhost:3001', ''),
+      assetUrl: slot.assetUrl,
       thumbnailUrl: slot.thumbnailUrl,
       duration: slot.duration,
       startTime: slot.startTime,

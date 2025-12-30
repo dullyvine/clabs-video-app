@@ -192,11 +192,8 @@ export function QueueProvider({ children }: { children: ReactNode }) {
                 startingJobsRef.current.add(item.id);
                 
                 try {
-                    // Normalize URLs (remove localhost prefix for backend)
-                    const normalizeUrl = (url: string) =>
-                        url?.startsWith('http://localhost:3001') 
-                            ? url.replace('http://localhost:3001', '') 
-                            : url;
+                    // URLs should already be relative (e.g., /temp/xyz.wav)
+                    const normalizeUrl = (url: string) => url;
 
                     // Prepare overlays
                     const overlaysForRequest = (item.state.overlays || []).map((overlay: any) => ({
@@ -294,7 +291,8 @@ export function QueueProvider({ children }: { children: ReactNode }) {
                                         ...p, 
                                         status: 'completed' as const, 
                                         progress: 100,
-                                        videoUrl: 'http://localhost:3001' + status.videoUrl 
+                                        // Use relative URL - Next.js rewrites proxy /temp/* to backend
+                                        videoUrl: status.videoUrl 
                                     } 
                                     : p
                             );

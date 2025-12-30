@@ -321,10 +321,7 @@ export default function CaptionPreview({
 
                     <audio 
                         ref={audioRef} 
-                        src={voiceoverUrl.startsWith('/') 
-                            ? `http://localhost:3001${voiceoverUrl}` 
-                            : voiceoverUrl
-                        } 
+                        src={voiceoverUrl} 
                     />
                 </div>
             )}
