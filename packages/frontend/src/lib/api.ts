@@ -23,7 +23,12 @@ import {
     TranscriptionStatus
 } from 'shared/src/types';
 
-const API_BASE = 'http://localhost:3001/api';
+// API base URL:
+// - Production: use relative '/api' (Next.js rewrites proxy to backend)
+// - Development: use localhost:3001 directly
+const API_BASE = process.env.NODE_ENV === 'production' 
+    ? '/api' 
+    : 'http://localhost:3001/api';
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${endpoint}`, {

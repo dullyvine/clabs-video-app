@@ -40,6 +40,10 @@ RUN npm install
 
 # Copy frontend source and build with standalone output
 COPY packages/frontend ./
+
+# Set backend URL for Next.js rewrites (used at runtime)
+ENV BACKEND_URL=http://localhost:3001
+
 RUN npm run build
 
 # Stage 3: Production Runtime with Node 20 (Debian-based for glibc)
@@ -73,6 +77,7 @@ RUN mkdir -p packages/backend/temp && \
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV FRONTEND_PORT=3000
+ENV BACKEND_URL=http://localhost:3001
 
 # Expose ports
 EXPOSE 3000 3001
