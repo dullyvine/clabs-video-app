@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import https from 'https';
 import http from 'http';
 import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import WaveFile from 'wavefile';
+import { WaveFile } from 'wavefile';
 
 // Word-level timestamp from transcription
 export interface WordTimestamp {
@@ -105,7 +105,7 @@ async function convertToWav(inputPath: string): Promise<string> {
  */
 function loadAudioData(wavPath: string): Float32Array {
     const buffer = fs.readFileSync(wavPath);
-    const wav = new WaveFile.WaveFile(buffer);
+    const wav = new WaveFile(buffer);
     
     // Convert to 32-bit float
     wav.toBitDepth('32f');
