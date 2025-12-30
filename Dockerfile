@@ -13,12 +13,14 @@ COPY packages/backend/package.json packages/backend/
 # Copy shared source for building
 COPY packages/shared ./packages/shared
 
-# Install backend dependencies
-WORKDIR /app/packages/backend
+# Copy backend source
+COPY packages/backend ./packages/backend
+
+# Install dependencies from root (handles workspace hoisting properly)
 RUN npm install
 
-# Copy backend source and build
-COPY packages/backend ./
+# Build backend
+WORKDIR /app/packages/backend
 RUN npm run build
 
 # Stage 2: Build Frontend with Node 20
@@ -59,9 +61,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy built backend with node_modules
+# Copy built backend
 COPY --from=backend-builder /app/packages/backend ./packages/backend
 COPY --from=backend-builder /app/packages/shared ./packages/shared
+# Copy node_modules from root (npm workspaces hoists dependencies)
+COPY --from=backend-builder /app/node_modules ./packages/backend/node_modules
 
 # Copy built frontend
 COPY --from=frontend-builder /app/packages/frontend/.next ./packages/frontend/.next
