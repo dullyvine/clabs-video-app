@@ -34,16 +34,17 @@ COPY packages/frontend/package.json packages/frontend/
 # Copy shared source
 COPY packages/shared ./packages/shared
 
-# Install frontend dependencies
-WORKDIR /app/packages/frontend
-RUN npm install
+# Copy frontend source
+COPY packages/frontend ./packages/frontend
 
-# Copy frontend source and build with standalone output
-COPY packages/frontend ./
+# Install dependencies from root (handles workspace hoisting properly)
+RUN npm install
 
 # Set backend URL for Next.js rewrites (used at runtime)
 ENV BACKEND_URL=http://localhost:3001
 
+# Build frontend
+WORKDIR /app/packages/frontend
 RUN npm run build
 
 # Stage 3: Production Runtime with Node 20 (Debian-based for glibc)
@@ -66,7 +67,8 @@ COPY --from=backend-builder /app/packages/shared ./packages/shared
 COPY --from=frontend-builder /app/packages/frontend/.next ./packages/frontend/.next
 COPY --from=frontend-builder /app/packages/frontend/public ./packages/frontend/public
 COPY --from=frontend-builder /app/packages/frontend/package.json ./packages/frontend/
-COPY --from=frontend-builder /app/packages/frontend/node_modules ./packages/frontend/node_modules
+# Copy node_modules from root (npm workspaces hoists dependencies)
+COPY --from=frontend-builder /app/node_modules ./packages/frontend/node_modules
 
 # Create necessary directories
 RUN mkdir -p packages/backend/temp && \
