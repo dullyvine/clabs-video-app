@@ -6,6 +6,7 @@ import { VoiceService, GeminiTTSModel, VoiceoverResponse } from 'shared/src/type
 import { getAudioDuration, concatenateAudioFiles } from './ffmpeg.service';
 import { getTempFilePath } from './file.service';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getGeminiTTSRateLimiter, estimateTokens, calculateOptimalStrategy } from '../utils/rate-limiter';
 
 const GEN_AI_PRO_API_KEY = process.env.GEN_AI_PRO_API_KEY;
 const GEN_AI_PRO_BASE_URL = process.env.GEN_AI_PRO_BASE_URL || 'https://genaipro.vn/api/v1';
@@ -578,10 +579,14 @@ async function generateGeminiVoiceover(
     const totalChars = estimateCharCount(script);
     console.log(`[Gemini TTS] Script length: ${totalChars} characters`);
 
-    // Gemini TTS works best with shorter text to avoid audio distortion
-    // At ~150 words/min, 800 chars ≈ 1-1.5 min of audio per chunk
-    // This ensures clean audio without distortion on longer voiceovers
-    const MAX_CHARS_PER_CHUNK = 1000;
+    // Calculate optimal strategy based on rate limits
+    // Paid Tier 1: 10 RPM, 10,000 TPM
+    // Optimal chunk size: 4000 chars ≈ 1000 tokens
+    // This allows 10 chunks/minute (RPM-limited)
+    const strategy = calculateOptimalStrategy(totalChars);
+    const MAX_CHARS_PER_CHUNK = strategy.chunkSize;
+    
+    console.log(`[Gemini TTS] Strategy: ${strategy.strategy}, chunk size: ${MAX_CHARS_PER_CHUNK}, estimated chunks: ${strategy.estimatedChunks}, estimated time: ${strategy.estimatedTimeSeconds}s`);
 
     let audioChunks: string[] = [];
     let wasChunked = false;
@@ -592,26 +597,52 @@ async function generateGeminiVoiceover(
         const scriptChunks = chunkScriptBySentences(script, MAX_CHARS_PER_CHUNK);
         console.log(`[Gemini TTS] Script chunked into ${scriptChunks.length} parts for better audio quality`);
 
-        // Generate audio for all chunks in parallel (with concurrency limit to avoid rate limiting)
-        const CONCURRENCY_LIMIT = 10; // Process 10 chunks at a time for maximum speed
+        // Get rate limiter instance
+        const rateLimiter = getGeminiTTSRateLimiter();
         const startTime = Date.now();
         
-        console.log(`[Gemini TTS] Generating ${scriptChunks.length} chunks in parallel (concurrency: ${CONCURRENCY_LIMIT})`);
+        // Rate-limited processing: respects 10 RPM and 10,000 TPM limits
+        // Process in batches of up to 10 (RPM limit), with automatic waiting between batches
+        const BATCH_SIZE = 10; // Max requests per minute
+        
+        console.log(`[Gemini TTS] Generating ${scriptChunks.length} chunks with rate limiting (${BATCH_SIZE} RPM limit)`);
+        console.log(`[Gemini TTS] Estimated completion time: ~${strategy.estimatedTimeSeconds}s`);
         
         // Create array to hold results in order
         const results: (string | null)[] = new Array(scriptChunks.length).fill(null);
         
-        // Process chunks in batches
-        for (let batchStart = 0; batchStart < scriptChunks.length; batchStart += CONCURRENCY_LIMIT) {
-            const batchEnd = Math.min(batchStart + CONCURRENCY_LIMIT, scriptChunks.length);
+        // Process chunks in rate-limited batches
+        for (let batchStart = 0; batchStart < scriptChunks.length; batchStart += BATCH_SIZE) {
+            const batchEnd = Math.min(batchStart + BATCH_SIZE, scriptChunks.length);
             const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, i) => batchStart + i);
+            const batchNumber = Math.floor(batchStart / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(scriptChunks.length / BATCH_SIZE);
             
-            console.log(`[Gemini TTS] Processing batch: chunks ${batchStart + 1}-${batchEnd} of ${scriptChunks.length}`);
+            // Wait for rate limit window if not the first batch
+            if (batchStart > 0) {
+                const usage = rateLimiter.getCurrentUsage();
+                if (usage.requests >= BATCH_SIZE) {
+                    const waitTime = rateLimiter.getWaitTime(estimateTokens(scriptChunks[batchStart]));
+                    if (waitTime > 0) {
+                        console.log(`[Gemini TTS] Batch ${batchNumber}/${totalBatches}: Waiting ${(waitTime / 1000).toFixed(1)}s for rate limit reset...`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        rateLimiter.reset(); // Reset after waiting for new window
+                    }
+                }
+            }
             
-            // Generate this batch in parallel
+            console.log(`[Gemini TTS] Processing batch ${batchNumber}/${totalBatches}: chunks ${batchStart + 1}-${batchEnd} of ${scriptChunks.length}`);
+            
+            // Generate this batch in parallel (within rate limits)
             const batchPromises = batchIndices.map(async (index) => {
-                console.log(`[Gemini TTS] Starting chunk ${index + 1}/${scriptChunks.length} (${scriptChunks[index].length} chars)`);
-                const audioPath = await generateSingleGeminiAudio(scriptChunks[index], voiceName, ttsModel);
+                const chunk = scriptChunks[index];
+                const tokenCount = estimateTokens(chunk);
+                
+                // Record the request with rate limiter
+                rateLimiter.recordRequest(tokenCount);
+                
+                console.log(`[Gemini TTS] Starting chunk ${index + 1}/${scriptChunks.length} (${chunk.length} chars, ~${tokenCount} tokens)`);
+                const audioPath = await generateSingleGeminiAudioWithRateLimit(chunk, voiceName, ttsModel);
                 console.log(`[Gemini TTS] Completed chunk ${index + 1}/${scriptChunks.length}`);
                 return { index, audioPath };
             });
@@ -623,6 +654,11 @@ async function generateGeminiVoiceover(
             for (const { index, audioPath } of batchResults) {
                 results[index] = audioPath;
             }
+            
+            // Progress update
+            const progress = ((batchEnd / scriptChunks.length) * 100).toFixed(0);
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`[Gemini TTS] Progress: ${progress}% (${batchEnd}/${scriptChunks.length} chunks, ${elapsed}s elapsed)`);
         }
         
         // Filter out any nulls (shouldn't happen, but safety check)
@@ -748,6 +784,133 @@ async function generateSingleGeminiAudio(
             if (isRetryable && attempt < maxRetries) {
                 const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // Exponential backoff: 1s, 2s, 4s, max 8s
                 console.warn(`[Gemini TTS] Attempt ${attempt}/${maxRetries} failed with ${error.status}, retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            } else {
+                console.error(`[Gemini TTS] Generation error (attempt ${attempt}/${maxRetries}):`, error);
+                throw error;
+            }
+        }
+    }
+    
+    throw lastError || new Error('Failed to generate audio after retries');
+}
+
+/**
+ * Generate a single Gemini TTS audio file with rate-limit-aware retry logic
+ * This version has longer delays for 429 errors (rate limit exceeded)
+ */
+async function generateSingleGeminiAudioWithRateLimit(
+    text: string,
+    voiceName: string,
+    model: string,
+    maxRetries: number = 5
+): Promise<string> {
+    if (!genAI) {
+        throw new Error('GEMINI_API_KEY is not configured');
+    }
+
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const generativeModel = genAI.getGenerativeModel({
+                model: model
+            });
+
+            const result = await generativeModel.generateContent({
+                contents: [{ role: 'user', parts: [{ text }] }],
+                generationConfig: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: {
+                                voiceName: voiceName
+                            }
+                        }
+                    }
+                } as any
+            });
+
+            const response = result.response;
+
+            // Extract audio data from response
+            const candidates = (response as any).candidates;
+            if (!candidates || candidates.length === 0) {
+                throw new Error('No audio generated in response');
+            }
+
+            const parts = candidates[0].content.parts;
+            if (!parts || parts.length === 0) {
+                throw new Error('No parts in response');
+            }
+
+            const audioPart = parts.find((part: any) => part.inlineData);
+            if (!audioPart || !audioPart.inlineData) {
+                throw new Error('No inline audio data in response');
+            }
+
+            const inlineAudio = audioPart.inlineData;
+            const audioInfo = parseGeminiAudioInlineData(inlineAudio.mimeType);
+            const audioData = inlineAudio.data;
+
+            if (!audioData) {
+                throw new Error('Gemini response did not include inline audio payload');
+            }
+
+            // The audio is base64 encoded, decode it
+            let audioBuffer: Buffer = Buffer.from(audioData, 'base64');
+
+            // Gemini currently returns raw PCM data, so we wrap it in a WAV container
+            if (audioInfo.isRawPcm) {
+                audioBuffer = wrapPcmInWav(audioBuffer, audioInfo);
+            }
+
+            const filePath = getTempFilePath(audioInfo.extension || 'wav');
+            const fileName = path.basename(filePath);
+            fs.writeFileSync(filePath, audioBuffer);
+
+            console.log(`[Gemini TTS] Audio saved to ${fileName}`);
+            return filePath;
+
+        } catch (error: any) {
+            lastError = error;
+            const is429 = error.status === 429;
+            const isRetryable = error.status === 500 || error.status === 503 || is429;
+            
+            if (isRetryable && attempt < maxRetries) {
+                let delayMs: number;
+                
+                if (is429) {
+                    // For rate limit errors, wait longer - at least 60 seconds for quota reset
+                    // Parse retry delay from error if available, otherwise use 60s base
+                    let suggestedDelay = 60000; // Default 60s
+                    
+                    // Try to parse retry delay from error details
+                    if (error.errorDetails) {
+                        const retryInfo = error.errorDetails.find((d: any) => 
+                            d['@type']?.includes('RetryInfo')
+                        );
+                        if (retryInfo?.retryDelay) {
+                            const match = retryInfo.retryDelay.match(/(\d+\.?\d*)/);
+                            if (match) {
+                                const seconds = parseFloat(match[1]);
+                                if (seconds > 0) {
+                                    suggestedDelay = Math.ceil(seconds * 1000);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // For 429, use exponential backoff starting at suggested delay or 60s
+                    // This ensures we wait for the full rate limit window to reset
+                    delayMs = Math.max(suggestedDelay, 60000) + (attempt - 1) * 10000;
+                    console.warn(`[Gemini TTS] Rate limit hit (429). Waiting ${(delayMs / 1000).toFixed(1)}s for quota reset (attempt ${attempt}/${maxRetries})...`);
+                } else {
+                    // For other errors, use standard exponential backoff
+                    delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+                    console.warn(`[Gemini TTS] Attempt ${attempt}/${maxRetries} failed with ${error.status}, retrying in ${delayMs}ms...`);
+                }
+                
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             } else {
                 console.error(`[Gemini TTS] Generation error (attempt ${attempt}/${maxRetries}):`, error);
