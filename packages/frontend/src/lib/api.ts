@@ -82,6 +82,24 @@ export const api = {
         return fetchAPI(`/voiceover/voices?${params.toString()}`);
     },
 
+    // Upload user's own audio file for voiceover
+    uploadVoiceover: async (file: File): Promise<{ audioUrl: string; duration: number; audioId: string }> => {
+        const formData = new FormData();
+        formData.append('audio', file);
+
+        const response = await fetch(`${API_BASE}/voiceover/upload`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Upload failed');
+        }
+
+        return response.json();
+    },
+
     // Images
     getImageServiceStatus: (): Promise<{ openrouter: boolean; gemini: boolean; available: string[] }> =>
         fetchAPI('/images/status'),

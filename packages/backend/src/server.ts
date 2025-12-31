@@ -15,7 +15,12 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+
+// Increase payload limits for long video scripts and transcription data
+// 50MB limit allows for very long videos (2+ hours) with full transcription data
+// This does NOT use 50MB of RAM constantly - only when processing large requests
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve static files from uploads and temp directories
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));

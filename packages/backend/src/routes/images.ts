@@ -134,13 +134,17 @@ imagesRouter.get('/edit-models', async (req, res) => {
 
 // Upload image
 imagesRouter.post('/upload', upload.single('image'), async (req, res) => {
+    console.log('[Images Route] Upload request received');
     try {
         if (!req.file) {
+            console.log('[Images Route] No file in request');
             return res.status(400).json({ error: 'No image file uploaded' });
         }
 
         const imageUrl = `/uploads/${req.file.filename}`;
         const imageId = uuidv4();
+
+        console.log(`[Images Route] Image uploaded: ${req.file.filename}`);
 
         res.json({
             imageUrl,

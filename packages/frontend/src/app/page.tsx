@@ -214,6 +214,7 @@ function ScriptVoiceoverStep() {
   const app = useApp();
   const { error: toastError, success: toastSuccess } = useToast();
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [voiceService, setVoiceService] = useState('gemini');
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash-preview-tts');
   const [voices, setVoices] = useState<any[]>([]);
@@ -226,6 +227,7 @@ function ScriptVoiceoverStep() {
   const [isScriptExpanded, setIsScriptExpanded] = useState(false);
   const processLog = useProcessLog();
   const scriptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const audioInputRef = React.useRef<HTMLInputElement>(null);
 
   // Handle script from AI chat - with smooth transition
   const handleUseAIScript = (script: string, wordCount: number) => {
@@ -352,6 +354,72 @@ function ScriptVoiceoverStep() {
       toastError('Error: ' + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle audio file upload
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('audio/')) {
+      toastError('Please upload an audio file (MP3, WAV, etc.)');
+      return;
+    }
+
+    setUploading(true);
+    processLog.startProcess();
+    const uploadId = processLog.addEntry('Uploading audio file...', 'in-progress');
+
+    try {
+      const result = await api.uploadVoiceover(file);
+      
+      processLog.updateEntry(uploadId, { 
+        status: 'completed', 
+        message: `Audio uploaded (${result.duration.toFixed(1)}s)` 
+      });
+
+      app.updateState({
+        voiceoverUrl: result.audioUrl,
+        voiceoverDuration: result.duration,
+      });
+
+      // Auto-transcribe for accurate captions
+      const transcribeId = processLog.addEntry('Transcribing audio for captions...', 'in-progress');
+      app.updateState({ isTranscribing: true });
+
+      try {
+        const transcription = await api.transcribeAudio({ audioUrl: result.audioUrl });
+        app.updateState({ 
+          wordTimestamps: transcription.words,
+          isTranscribing: false 
+        });
+        processLog.updateEntry(transcribeId, { 
+          status: 'completed', 
+          message: `Transcribed ${transcription.words.length} words for accurate captions`
+        });
+      } catch (transcribeErr: any) {
+        console.warn('Transcription failed, will use estimated timing:', transcribeErr);
+        app.updateState({ isTranscribing: false });
+        processLog.updateEntry(transcribeId, { 
+          status: 'error', 
+          message: 'Transcription unavailable, using estimated timing'
+        });
+      }
+
+      processLog.endProcess();
+      toastSuccess('Audio uploaded successfully!');
+    } catch (err: any) {
+      processLog.addEntry(`Error: ${err.message}`, 'error');
+      processLog.endProcess();
+      toastError('Upload failed: ' + err.message);
+    } finally {
+      setUploading(false);
+      // Reset file input
+      if (audioInputRef.current) {
+        audioInputRef.current.value = '';
+      }
     }
   };
 
@@ -543,14 +611,32 @@ function ScriptVoiceoverStep() {
         </div>
       )}
 
+      {/* Hidden file input for audio upload */}
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        onChange={handleAudioUpload}
+        style={{ display: 'none' }}
+      />
+
       {/* Actions */}
       <div className="actions-bar">
         <Button
           onClick={handleGenerateVoiceover}
-          disabled={!app.script || !app.voiceId}
+          disabled={!app.script || !app.voiceId || uploading}
           isLoading={loading}
         >
           {loading ? 'Generating...' : app.voiceoverUrl ? 'Regenerate' : 'Generate Voiceover'}
+        </Button>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>or</span>
+        <Button
+          variant="secondary"
+          onClick={() => audioInputRef.current?.click()}
+          disabled={loading || uploading}
+          isLoading={uploading}
+        >
+          {uploading ? 'Uploading...' : 'Upload Audio'}
         </Button>
         <div className="actions-bar-spacer" />
         {app.voiceoverUrl && (
@@ -694,6 +780,9 @@ function AssetGenerationStep() {
   const [refineModalInput, setRefineModalInput] = useState('');
   // Service availability based on API keys
   const [serviceStatus, setServiceStatus] = useState<{ openrouter: boolean; gemini: boolean; available: string[] } | null>(null);
+  // Image upload state
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const imageInputRef = React.useRef<HTMLInputElement>(null);
   const processLog = useProcessLog();
   
   const sortedImages = React.useMemo(() => {
@@ -957,8 +1046,102 @@ function AssetGenerationStep() {
     }
   };
 
+  // Handle image upload (single or multiple files)
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    console.log('[Image Upload] Files selected:', files.length);
+
+    // For single-image flow, only allow one image
+    const filesToUpload = app.selectedFlow === 'single-image' 
+      ? [files[0]] 
+      : Array.from(files);
+
+    console.log('[Image Upload] Files to upload:', filesToUpload.length, 'Flow:', app.selectedFlow);
+
+    // Validate all files are images
+    for (const file of filesToUpload) {
+      if (!file.type.startsWith('image/')) {
+        toastError('Please upload only image files (PNG, JPG, etc.)');
+        return;
+      }
+    }
+
+    setUploadingImages(true);
+    processLog.startProcess();
+    const uploadId = processLog.addEntry(`Uploading ${filesToUpload.length} image(s)...`, 'in-progress');
+
+    try {
+      const uploadedImages: any[] = [];
+
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const file = filesToUpload[i];
+        console.log(`[Image Upload] Uploading file ${i + 1}/${filesToUpload.length}:`, file.name, file.size);
+        processLog.addEntry(`Uploading image ${i + 1}/${filesToUpload.length}...`, 'in-progress');
+        
+        const result = await api.uploadImage(file);
+        console.log(`[Image Upload] Upload result:`, result);
+        
+        uploadedImages.push({
+          ...result,
+          promptIndex: app.generatedImages.length + i,
+          prompt: 'User uploaded image'
+        });
+      }
+
+      processLog.updateEntry(uploadId, { 
+        status: 'completed', 
+        message: `Uploaded ${uploadedImages.length} image(s) successfully` 
+      });
+
+      console.log('[Image Upload] All uploads complete, updating state with', uploadedImages.length, 'images');
+
+      // For single-image, replace all images; for multi-image, append to existing
+      if (app.selectedFlow === 'single-image') {
+        console.log('[Image Upload] Single image flow - replacing images');
+        app.updateState({ generatedImages: uploadedImages });
+      } else {
+        // Append uploaded images, adjusting promptIndex
+        const existingCount = app.generatedImages.length;
+        const adjustedImages = uploadedImages.map((img, i) => ({
+          ...img,
+          promptIndex: existingCount + i
+        }));
+        console.log('[Image Upload] Multi image flow - appending', adjustedImages.length, 'to existing', existingCount);
+        app.updateState({ 
+          generatedImages: [...app.generatedImages, ...adjustedImages] 
+        });
+      }
+
+      console.log('[Image Upload] State updated, ending process');
+      processLog.endProcess();
+      toastSuccess(`${uploadedImages.length} image(s) uploaded successfully!`);
+    } catch (err: any) {
+      processLog.addEntry(`Error: ${err.message}`, 'error');
+      processLog.endProcess();
+      toastError('Upload failed: ' + err.message);
+    } finally {
+      setUploadingImages(false);
+      // Reset file input
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <Card className="card-padding">
+      {/* Hidden file input for image upload */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        multiple={app.selectedFlow === 'multi-image'}
+        onChange={handleImageUpload}
+        style={{ display: 'none' }}
+      />
+
       <div className="section-header">
         <div className="section-title">
           <h2>Generate {app.selectedFlow === 'single-image' ? 'Image' : 'Images'}</h2>
@@ -1106,17 +1289,28 @@ function AssetGenerationStep() {
         )}
       </div>
 
-      {/* Prompts Section */}
-      {prompts.length === 0 ? (
+      {/* Prompts Section - only show if no images uploaded yet */}
+      {prompts.length === 0 && !hasImages ? (
         <div style={{ textAlign: 'center', padding: 'var(--spacing-lg)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
           <p style={{ color: 'var(--text-secondary)', marginBottom: 'var(--spacing-md)' }}>
-            Generate AI prompts based on your script, or use Brain Dump above
+            Generate AI prompts based on your script, or upload your own images
           </p>
-          <Button onClick={handleGeneratePrompts} isLoading={loading}>
-            Generate Prompts from Script
-          </Button>
+          <div style={{ display: 'flex', gap: 'var(--spacing-sm)', justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button onClick={handleGeneratePrompts} isLoading={loading} disabled={uploadingImages}>
+              Generate Prompts from Script
+            </Button>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>or</span>
+            <Button 
+              variant="secondary" 
+              onClick={() => imageInputRef.current?.click()}
+              isLoading={uploadingImages}
+              disabled={loading}
+            >
+              {uploadingImages ? 'Uploading...' : `Upload ${app.selectedFlow === 'single-image' ? 'Image' : 'Images'}`}
+            </Button>
+          </div>
         </div>
-      ) : (
+      ) : prompts.length > 0 && !hasImages ? (
         <div style={{ marginBottom: 'var(--spacing-md)' }}>
           <div className="section-header" style={{ marginBottom: 'var(--spacing-sm)' }}>
             <div className="section-title">
@@ -1197,16 +1391,26 @@ function AssetGenerationStep() {
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* Generated Images */}
+      {/* Images (generated or uploaded) */}
       {hasImages && (
         <div className="asset-preview-section">
           <div className="asset-preview-header">
             <span className="asset-preview-title">
-              Generated Images ({sortedImages.length})
+              {app.selectedFlow === 'single-image' ? 'Image' : 'Images'} ({sortedImages.length})
             </span>
             <div className="asset-preview-actions">
+              {app.selectedFlow === 'multi-image' && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={uploadingImages}
+                >
+                  {uploadingImages ? 'Uploading...' : '+ Add More'}
+                </Button>
+              )}
               <DownloadAllButton 
                 files={downloadFiles}
                 zipFilename="generated-images.zip"
@@ -1219,12 +1423,13 @@ function AssetGenerationStep() {
             {sortedImages.map((img: any, index: number) => {
               const promptIndex = img.promptIndex ?? index;
               const promptEntry = (prompts.length > 0 ? prompts : app.imagePrompts)[promptIndex];
-              const promptText = promptEntry?.prompt || '—';
+              const isUploaded = img.model === 'user-upload';
+              const promptText = isUploaded ? 'Uploaded image' : (promptEntry?.prompt || '—');
               const assetUrl = toAssetUrl(img.imageUrl);
               return (
                 <div key={img.imageId || `${promptIndex}-${index}`} className="image-grid-item">
                   <div className="image-grid-item-media">
-                    <img src={assetUrl} alt={`Scene ${promptIndex + 1}`} />
+                    <img src={assetUrl} alt={`${isUploaded ? 'Uploaded' : 'Scene'} ${promptIndex + 1}`} />
                   </div>
                   <div className="image-grid-item-overlay">
                     <div className="image-grid-item-actions">
@@ -1251,26 +1456,28 @@ function AssetGenerationStep() {
                       >
                         Edit
                       </button>
-                      <button
-                        onClick={() => handleRegenerateImage(promptIndex)}
-                        disabled={regeneratingIndex === promptIndex}
-                        style={{ 
-                          flex: 1, 
-                          padding: '6px 8px', 
-                          fontSize: '0.75rem', 
-                          background: 'var(--bg-tertiary)', 
-                          border: '1px solid var(--glass-border)', 
-                          borderRadius: 'var(--radius-xs)', 
-                          cursor: 'pointer',
-                          color: 'var(--text-primary)'
-                        }}
-                      >
-                        {regeneratingIndex === promptIndex ? '...' : 'Redo'}
-                      </button>
+                      {!isUploaded && (
+                        <button
+                          onClick={() => handleRegenerateImage(promptIndex)}
+                          disabled={regeneratingIndex === promptIndex}
+                          style={{ 
+                            flex: 1, 
+                            padding: '6px 8px', 
+                            fontSize: '0.75rem', 
+                            background: 'var(--bg-tertiary)', 
+                            border: '1px solid var(--glass-border)', 
+                            borderRadius: 'var(--radius-xs)', 
+                            cursor: 'pointer',
+                            color: 'var(--text-primary)'
+                          }}
+                        >
+                          {regeneratingIndex === promptIndex ? '...' : 'Redo'}
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div className="image-grid-item-info">
-                    <span className="image-grid-item-label">Scene {promptIndex + 1}</span>
+                    <span className="image-grid-item-label">{isUploaded ? 'Uploaded' : 'Scene'} {index + 1}</span>
                     <p className="image-grid-item-prompt">{promptText}</p>
                   </div>
                 </div>

@@ -3,8 +3,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { VoiceoverRequest, VoiceoverResponse, TranscriptionRequest, TranscriptionResponse } from 'shared/src/types';
 import { generateVoiceover, listVoices, generateVoicePreview } from '../services/tts.service';
 import { transcribeAudio, getTranscriptionStatus, preloadTranscriptionModel } from '../services/transcription.service';
+import { getAudioDuration } from '../services/ffmpeg.service';
 import { createJob, updateJob } from '../utils/jobs';
 import { trackFile } from '../services/file.service';
+import { tempUpload } from '../utils/upload';
 
 export const voiceoverRouter = express.Router();
 
@@ -90,6 +92,43 @@ voiceoverRouter.get('/voices', async (req, res) => {
         res.json({ voices });
     } catch (error: any) {
         console.error('Error fetching voices:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upload user's own audio file for voiceover
+voiceoverRouter.post('/upload', tempUpload.single('audio'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No audio file uploaded' });
+        }
+
+        // Get the uploaded file path
+        const audioPath = req.file.path;
+        const audioUrl = `/temp/${req.file.filename}`;
+        const audioId = uuidv4();
+
+        // Get audio duration using ffprobe
+        let duration: number;
+        try {
+            duration = await getAudioDuration(audioPath);
+        } catch (err) {
+            console.error('Failed to get audio duration:', err);
+            return res.status(400).json({ error: 'Could not read audio file. Please ensure it is a valid audio file.' });
+        }
+
+        console.log(`[Voiceover Upload] Audio uploaded: ${req.file.filename}, duration: ${duration.toFixed(1)}s`);
+
+        // Track the file for cleanup
+        trackFile(audioPath);
+
+        res.json({
+            audioUrl,
+            duration,
+            audioId
+        });
+    } catch (error: any) {
+        console.error('Audio upload error:', error);
         res.status(500).json({ error: error.message });
     }
 });
