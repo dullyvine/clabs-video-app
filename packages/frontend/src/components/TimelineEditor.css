@@ -691,6 +691,44 @@
 }
 
 /* Responsive */
+@media (max-width: 768px) {
+  .timeline-editor-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .timeline-editor-actions {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: var(--spacing-xs);
+  }
+
+  .timeline-preview {
+    padding: var(--spacing-md);
+  }
+
+  .timeline-preview-screen {
+    max-width: 100%;
+  }
+
+  .timeline-clip-panel-content {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .timeline-clip-panel-preview {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    max-height: 200px;
+  }
+
+  .timeline-clip-panel-info {
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+}
+
 @media (max-width: 640px) {
   .timeline-preview-screen {
     max-width: 100%;
@@ -733,6 +771,91 @@
   .timeline-actions-group {
     flex-wrap: wrap;
     justify-content: center;
+  }
+  
+  .timeline-editor-header {
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    align-items: flex-start;
+  }
+  
+  .timeline-editor-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  .timeline-playback-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  
+  .timeline-preview {
+    padding: var(--spacing-md);
+  }
+  
+  .timeline-track-wrapper {
+    padding: var(--spacing-sm);
+  }
+  
+  .timeline-ruler {
+    margin-left: 40px;
+  }
+  
+  .timeline-track-labels {
+    width: 40px;
+  }
+  
+  .timeline-track-label {
+    font-size: 0.5625rem;
+  }
+  
+  .timeline-tips {
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    font-size: 0.5625rem;
+  }
+  
+  .timeline-tip {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  
+  .timeline-clip-panel-info {
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+  
+  .timeline-clip-panel-duration {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .timeline-playback-btn {
+    width: 28px;
+    height: 28px;
+  }
+  
+  .timeline-playback-main {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .timeline-track-labels {
+    width: 32px;
+  }
+  
+  .timeline-ruler {
+    margin-left: 32px;
+  }
+  
+  .timeline-track-label:last-child {
+    height: 36px;
+  }
+  
+  .timeline-audio-track-main {
+    height: 36px;
   }
 }
 

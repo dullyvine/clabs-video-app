@@ -153,3 +153,34 @@
     color: var(--text-muted, #6b7280);
     font-size: 11px;
 }
+
+/* Mobile Responsive */
+@media (max-width: 480px) {
+    .caption-preview-container {
+        max-width: 100%;
+        padding: 8px;
+    }
+    
+    .caption-preview-header h4 {
+        font-size: 13px;
+    }
+    
+    .caption-preview-controls {
+        gap: 8px;
+    }
+    
+    .play-pause-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 10px;
+    }
+    
+    .time-display {
+        font-size: 11px;
+    }
+    
+    .caption-text {
+        font-size: 12px !important;
+        padding: 4px 8px;
+    }
+}

@@ -237,11 +237,21 @@ select {
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
+  min-height: 44px;
 }
 
 select option {
   background: var(--bg-secondary);
   color: var(--text-primary);
+  padding: 12px;
+}
+
+/* Improve touch targets for form elements on mobile */
+@media (max-width: 768px) {
+  select {
+    min-height: 48px;
+    padding: 12px 36px 12px 12px;
+  }
 }
 
 /* Animations */
@@ -385,5 +395,43 @@ select option {
   
   h2 {
     font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :root {
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+  }
+  
+  .container {
+    padding: var(--spacing-xs);
+  }
+  
+  .btn {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    min-height: 44px;
+  }
+  
+  .btn-sm {
+    padding: 0.625rem 0.875rem;
+    min-height: 40px;
+  }
+  
+  .btn-lg {
+    padding: 0.875rem 1.5rem;
+    font-size: 0.9375rem;
+    min-height: 48px;
+  }
+  
+  input, textarea, select {
+    padding: 0.75rem 0.875rem;
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 48px;
+  }
+  
+  textarea {
+    min-height: 120px;
   }
 }

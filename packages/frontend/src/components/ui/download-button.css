@@ -21,11 +21,26 @@
 .download-btn-sm {
   padding: 6px 12px;
   font-size: 0.75rem;
+  min-height: 32px;
 }
 
 .download-btn-md {
   padding: 8px 16px;
   font-size: 0.8125rem;
+  min-height: 40px;
+}
+
+/* Mobile touch targets */
+@media (max-width: 480px) {
+  .download-btn-sm {
+    min-height: 40px;
+    padding: 8px 14px;
+  }
+  
+  .download-btn-md {
+    min-height: 44px;
+    padding: 10px 18px;
+  }
 }
 
 /* Style variants */
