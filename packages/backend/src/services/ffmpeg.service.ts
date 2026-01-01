@@ -2,7 +2,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
 import { BlendMode, Overlay, MotionEffect } from 'shared/src/types';
-import { getTempFilePath } from './file.service';
+import { getTempFilePath, getUploadFilePath } from './file.service';
 
 /**
  * FFmpeg service for video composition
@@ -126,13 +126,13 @@ export async function generateSingleImageVideo(
         // Output options
         command = command
             .outputOptions([
+                '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
                 '-c:v libx264',
                 '-preset ultrafast',
                 '-crf 28',
                 '-tune stillimage',
                 '-c:a aac',
                 '-b:a 192k',
-                '-pix_fmt yuv420p',
                 '-threads 4',
                 '-shortest'
             ])
@@ -196,11 +196,11 @@ export async function generateMultiImageVideo(
                 .input(imagePath)
                 .inputOptions(['-loop 1', `-t ${duration}`])
                 .outputOptions([
+                    '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
                     '-c:v libx264',
                     '-preset ultrafast',
                     '-crf 28',
                     '-tune stillimage',
-                    '-pix_fmt yuv420p',
                     '-r 30',
                     '-threads 4'
                 ])
@@ -707,6 +707,44 @@ export function getAudioDuration(audioPath: string): Promise<number> {
             }
         });
     });
+}
+
+export async function normalizeAudioToWav(inputPath: string): Promise<{ outputPath: string; duration: number }> {
+    const outputPath = getTempFilePath('wav');
+
+    await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+            .input(inputPath)
+            .outputOptions([
+                '-vn',
+                '-ac', '2',
+                '-ar', '44100',
+                '-c:a', 'pcm_s16le'
+            ])
+            .output(outputPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(new Error(`FFmpeg error: ${err.message}`)))
+            .run();
+    });
+
+    const duration = await getAudioDuration(outputPath);
+    return { outputPath, duration };
+}
+
+export async function normalizeImageToPng(inputPath: string): Promise<string> {
+    const outputPath = getUploadFilePath('png');
+
+    await new Promise<void>((resolve, reject) => {
+        ffmpeg()
+            .input(inputPath)
+            .outputOptions(['-frames:v 1'])
+            .output(outputPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(new Error(`FFmpeg error: ${err.message}`)))
+            .run();
+    });
+
+    return outputPath;
 }
 
 /**

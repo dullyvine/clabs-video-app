@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import {
@@ -11,7 +12,7 @@ import {
 } from 'shared/src/types';
 import { generateImagePrompt, generateMultipleImagePrompts } from '../services/llm.service';
 import { generateImage, generateMultipleImages, listImageModels, editImage, listImageEditModels, getImageServiceStatus } from '../services/image.service';
-import { trackFile } from '../services/file.service';
+import { normalizeImageToPng } from '../services/ffmpeg.service';
 import { upload } from '../utils/upload';
 
 export const imagesRouter = express.Router();
@@ -141,10 +142,22 @@ imagesRouter.post('/upload', upload.single('image'), async (req, res) => {
             return res.status(400).json({ error: 'No image file uploaded' });
         }
 
-        const imageUrl = `/uploads/${req.file.filename}`;
         const imageId = uuidv4();
 
-        console.log(`[Images Route] Image uploaded: ${req.file.filename}`);
+        let normalizedPath: string;
+        try {
+            normalizedPath = await normalizeImageToPng(req.file.path);
+        } catch (err) {
+            console.error('Failed to normalize image:', err);
+            return res.status(400).json({ error: 'Could not read image file. Please ensure it is a valid image.' });
+        }
+
+        const imageUrl = `/uploads/${path.basename(normalizedPath)}`;
+
+        console.log(`[Images Route] Image normalized: ${path.basename(normalizedPath)}`);
+
+        // Best-effort cleanup of original upload
+        try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
 
         res.json({
             imageUrl,

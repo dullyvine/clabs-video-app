@@ -301,6 +301,16 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
         const audioPath = await resolveAssetPath(request.voiceoverUrl);
         console.log(`[Video Generation] Audio path: ${audioPath}`);
 
+        let voiceoverDuration = request.voiceoverDuration;
+        if (!voiceoverDuration || voiceoverDuration <= 0) {
+            try {
+                voiceoverDuration = await getAudioDuration(audioPath);
+                console.log(`[Video Generation] Derived voiceover duration: ${voiceoverDuration.toFixed(1)}s`);
+            } catch (err: any) {
+                throw new Error(`Unable to read audio duration for ${audioPath}: ${err.message}`);
+            }
+        }
+
         // Resolve overlay file paths with detailed logging
         console.log(`[Video Generation] Processing ${(request.overlays || []).length} overlay(s) from request`);
         
@@ -334,7 +344,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             videoPath = await generateSingleImageVideo(
                 {
                     audioPath,
-                    audioDuration: request.voiceoverDuration,
+                    audioDuration: voiceoverDuration,
                     imagePath,
                     overlays: overlays as any
                 },
@@ -351,7 +361,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             videoPath = await generateMultiImageVideo(
                 {
                     audioPath,
-                    audioDuration: request.voiceoverDuration,
+                    audioDuration: voiceoverDuration,
                     images,
                     overlays: overlays as any
                 },
@@ -369,7 +379,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             videoPath = await generateStockVideoComposition(
                 {
                     audioPath,
-                    audioDuration: request.voiceoverDuration,
+                    audioDuration: voiceoverDuration,
                     videos,
                     loop: request.loop,
                     overlays: overlays as any
@@ -390,7 +400,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                 videoPath = await applyMotionEffect(
                     videoPath,
                     request.motionEffect,
-                    request.voiceoverDuration,
+                    voiceoverDuration,
                     (progress) => {
                         const scaledProgress = 75 + Math.floor(progress * 0.1);
                         updateJob(jobId, { progress: Math.min(84, scaledProgress) });
@@ -414,7 +424,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                 // Generate captions from script (uses real timestamps if provided)
                 const captionResult = await generateCaptions({
                     script: request.script,
-                    voiceoverDuration: request.voiceoverDuration,
+                    voiceoverDuration,
                     style: request.captionStyle,
                     wordTimestamps: request.wordTimestamps // Pass real timestamps if available
                 });

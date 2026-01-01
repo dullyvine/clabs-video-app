@@ -1,9 +1,11 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { VoiceoverRequest, VoiceoverResponse, TranscriptionRequest, TranscriptionResponse } from 'shared/src/types';
 import { generateVoiceover, listVoices, generateVoicePreview } from '../services/tts.service';
 import { transcribeAudio, getTranscriptionStatus, preloadTranscriptionModel } from '../services/transcription.service';
-import { getAudioDuration } from '../services/ffmpeg.service';
+import { normalizeAudioToWav } from '../services/ffmpeg.service';
 import { createJob, updateJob } from '../utils/jobs';
 import { trackFile } from '../services/file.service';
 import { tempUpload } from '../utils/upload';
@@ -105,22 +107,28 @@ voiceoverRouter.post('/upload', tempUpload.single('audio'), async (req, res) => 
 
         // Get the uploaded file path
         const audioPath = req.file.path;
-        const audioUrl = `/temp/${req.file.filename}`;
         const audioId = uuidv4();
 
-        // Get audio duration using ffprobe
+        let normalizedPath = audioPath;
         let duration: number;
+
         try {
-            duration = await getAudioDuration(audioPath);
+            const normalized = await normalizeAudioToWav(audioPath);
+            normalizedPath = normalized.outputPath;
+            duration = normalized.duration;
         } catch (err) {
-            console.error('Failed to get audio duration:', err);
+            console.error('Failed to normalize audio:', err);
             return res.status(400).json({ error: 'Could not read audio file. Please ensure it is a valid audio file.' });
         }
 
-        console.log(`[Voiceover Upload] Audio uploaded: ${req.file.filename}, duration: ${duration.toFixed(1)}s`);
+        const audioUrl = `/temp/${path.basename(normalizedPath)}`;
 
-        // Track the file for cleanup
-        trackFile(audioPath);
+        console.log(`[Voiceover Upload] Audio normalized: ${path.basename(normalizedPath)}, duration: ${duration.toFixed(1)}s`);
+
+        // Track the normalized file for cleanup
+        trackFile(normalizedPath);
+        // Best-effort cleanup of original upload
+        try { fs.unlinkSync(audioPath); } catch { /* ignore */ }
 
         res.json({
             audioUrl,
