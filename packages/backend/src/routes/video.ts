@@ -34,8 +34,52 @@ export const VIDEO_QUALITY_PRESETS: Record<VideoQuality, VideoQualitySettings> =
 
 export const videoRouter = express.Router();
 
-// Maximum time for video generation (10 minutes)
-const VIDEO_GENERATION_TIMEOUT_MS = 10 * 60 * 1000;
+// Maximum time for video generation (defaults to 30 minutes, can be overridden)
+const VIDEO_GENERATION_TIMEOUT_MS = (() => {
+    const raw = Number(process.env.VIDEO_GENERATION_TIMEOUT_MS);
+    if (Number.isFinite(raw) && raw > 0) {
+        return raw;
+    }
+    const fallbackMs = 30 * 60 * 1000;
+    const minMs = 5 * 60 * 1000;
+    return Math.max(fallbackMs, minMs);
+})();
+
+const VIDEO_GENERATION_TIMEOUT_BASE_MS = (() => {
+    const raw = Number(process.env.VIDEO_GENERATION_TIMEOUT_BASE_MS);
+    if (Number.isFinite(raw) && raw > 0) {
+        return raw;
+    }
+    return VIDEO_GENERATION_TIMEOUT_MS;
+})();
+
+const VIDEO_GENERATION_TIMEOUT_PER_MIN_MS = (() => {
+    const raw = Number(process.env.VIDEO_GENERATION_TIMEOUT_PER_MIN_MS);
+    if (Number.isFinite(raw) && raw >= 0) {
+        return raw;
+    }
+    return 2 * 60 * 1000;
+})();
+
+const VIDEO_GENERATION_TIMEOUT_MAX_MS = (() => {
+    const raw = Number(process.env.VIDEO_GENERATION_TIMEOUT_MAX_MS);
+    if (Number.isFinite(raw) && raw > 0) {
+        return raw;
+    }
+    return 6 * 60 * 60 * 1000;
+})();
+
+function getDynamicTimeoutMs(voiceoverDurationSeconds: number | null | undefined): number {
+    const safeDuration = Math.max(0, Number(voiceoverDurationSeconds) || 0);
+    const minutes = Math.ceil(safeDuration / 60);
+    const computed = VIDEO_GENERATION_TIMEOUT_BASE_MS + (minutes * VIDEO_GENERATION_TIMEOUT_PER_MIN_MS);
+    const bounded = Math.min(Math.max(computed, VIDEO_GENERATION_TIMEOUT_BASE_MS), VIDEO_GENERATION_TIMEOUT_MAX_MS);
+    return bounded;
+}
+
+function createTimeoutError(timeoutMs: number): Error {
+    return new Error(`Video generation timed out after ${Math.round(timeoutMs / 1000)}s`);
+}
 
 // Generate final video
 videoRouter.post('/generate', async (req, res) => {
@@ -198,11 +242,15 @@ videoRouter.post('/overlay/upload', tempUpload.single('overlay'), (req, res) => 
 
 // Async video generation function
 async function generateVideoAsync(jobId: string, request: VideoGenerationRequest) {
-    // Create a timeout promise
+    // Create a timeout promise (may be adjusted once audio duration is known)
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    let timeoutReject: ((reason?: any) => void) | null = null;
     const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-            reject(new Error(`Video generation timed out after ${VIDEO_GENERATION_TIMEOUT_MS / 1000}s`));
-        }, VIDEO_GENERATION_TIMEOUT_MS);
+        timeoutReject = reject;
+        const timeoutMs = VIDEO_GENERATION_TIMEOUT_BASE_MS;
+        timeoutHandle = setTimeout(() => {
+            reject(createTimeoutError(timeoutMs));
+        }, timeoutMs);
     });
 
     // Create the actual generation promise
@@ -309,6 +357,14 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             } catch (err: any) {
                 throw new Error(`Unable to read audio duration for ${audioPath}: ${err.message}`);
             }
+        }
+
+        const dynamicTimeoutMs = getDynamicTimeoutMs(voiceoverDuration);
+        if (timeoutHandle && timeoutReject) {
+            clearTimeout(timeoutHandle);
+            timeoutHandle = setTimeout(() => {
+                timeoutReject?.(createTimeoutError(dynamicTimeoutMs));
+            }, dynamicTimeoutMs);
         }
 
         // Resolve overlay file paths with detailed logging
@@ -492,5 +548,9 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             status: 'failed',
             error: error.message
         });
+    } finally {
+        if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+        }
     }
 }
