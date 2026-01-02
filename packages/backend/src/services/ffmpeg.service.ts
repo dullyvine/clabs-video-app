@@ -429,10 +429,15 @@ export async function burnCaptions(
     const outputPath = getTempFilePath('mp4');
     const ext = path.extname(captionFilePath).toLowerCase();
     
-    // Normalize path for FFmpeg (escape special characters)
-    const normalizedCaptionPath = captionFilePath
+    const escapeFilterPath = (filePath: string) => filePath
         .replace(/\\/g, '/')
-        .replace(/:/g, '\\:');
+        .replace(/:/g, '\\:')
+        .replace(/'/g, "\\'");
+
+    const normalizedCaptionPath = escapeFilterPath(captionFilePath);
+    const windowsFontsDir = process.env.CAPTION_FONTS_DIR || 'C:/Windows/Fonts';
+    const fontsDir = fs.existsSync(windowsFontsDir) ? escapeFilterPath(windowsFontsDir) : null;
+    const fontsFilter = fontsDir ? `:fontsdir='${fontsDir}'` : '';
 
     console.log(`[FFmpeg Caption] Burning captions from: ${captionFilePath}`);
 
@@ -449,15 +454,11 @@ export async function burnCaptions(
             ]);
 
         // Use subtitles filter for ASS/SRT
-        if (ext === '.ass') {
-            command = command.videoFilters([
-                `ass='${normalizedCaptionPath}'`
-            ]);
-        } else {
-            command = command.videoFilters([
-                `subtitles='${normalizedCaptionPath}'`
-            ]);
-        }
+        const filter = ext === '.ass'
+            ? `ass='${normalizedCaptionPath}'${fontsFilter}`
+            : `subtitles='${normalizedCaptionPath}'${fontsFilter}`;
+
+        command = command.videoFilters([filter]);
 
         command
             .output(outputPath)

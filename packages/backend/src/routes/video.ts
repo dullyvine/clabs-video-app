@@ -414,7 +414,8 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
         }
 
         // Burn captions if enabled
-        if (request.captionsEnabled && request.script) {
+        const hasCaptionData = Boolean(request.script) || (request.wordTimestamps && request.wordTimestamps.length > 0);
+        if (request.captionsEnabled && hasCaptionData) {
             console.log(`[Video Generation] Captions enabled, generating and burning...`);
             const hasRealTimestamps = request.wordTimestamps && request.wordTimestamps.length > 0;
             console.log(`[Video Generation] Using ${hasRealTimestamps ? 'REAL transcription' : 'estimated'} timestamps`);
@@ -423,7 +424,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
             try {
                 // Generate captions from script (uses real timestamps if provided)
                 const captionResult = await generateCaptions({
-                    script: request.script,
+                    script: request.script || '',
                     voiceoverDuration,
                     style: request.captionStyle,
                     wordTimestamps: request.wordTimestamps // Pass real timestamps if available
