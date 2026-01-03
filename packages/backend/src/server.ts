@@ -8,6 +8,7 @@ import { stockVideosRouter } from './routes/stock-videos';
 import { videoRouter } from './routes/video';
 import { chatRouter } from './routes/chat';
 import { cleanupAllTempFiles, getTempStats } from './services/file.service';
+import { preloadTranscriptionModel } from './services/transcription.service';
 import { clearAllJobs, getAllJobs } from './utils/jobs';
 
 const app = express();
@@ -87,6 +88,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 app.listen(PORT, () => {
+    preloadTranscriptionModel();
     console.log(`🚀 Backend server running on http://localhost:${PORT}`);
     console.log(`📁 Uploads directory: ${path.join(__dirname, '../uploads')}`);
     console.log(`📁 Temp directory: ${path.join(__dirname, '../temp')}`);

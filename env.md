@@ -46,6 +46,17 @@ DEFAULT_LLM_MODEL=anthropic/claude-3.5-sonnet
 AI33_API_KEY=
 AI33_BASE_URL=https://api.ai33.pro/v1
 
+# Transcription tuning (local Whisper)
+# Xenova/whisper-tiny.en is the smallest + fastest free model available.
+# For higher accuracy (still free), switch to Xenova/whisper-base.en.
+TRANSCRIPTION_MODEL=Xenova/whisper-tiny.en
+TRANSCRIPTION_DTYPE=q8
+TRANSCRIPTION_DEVICE=cpu
+TRANSCRIPTION_LANGUAGE=english
+TRANSCRIPTION_TASK=transcribe
+TRANSCRIPTION_CHUNK_LENGTH_S=30
+TRANSCRIPTION_STRIDE_LENGTH_S=5
+
 # Storyblocks - Premium stock videos (paid)
 STORYBLOCKS_PUBLIC_KEY=
 STORYBLOCKS_SECRET_KEY=

@@ -228,6 +228,68 @@ function ScriptVoiceoverStep() {
   const processLog = useProcessLog();
   const scriptTextareaRef = React.useRef<HTMLTextAreaElement>(null);
   const audioInputRef = React.useRef<HTMLInputElement>(null);
+  const transcribeAbortRef = React.useRef<AbortController | null>(null);
+  const transcribeLogIdRef = React.useRef<string | null>(null);
+  const transcriptionSkippedRef = React.useRef(false);
+
+  const runTranscription = async (audioUrl: string) => {
+    transcriptionSkippedRef.current = false;
+    const controller = new AbortController();
+    transcribeAbortRef.current = controller;
+
+    const transcribeId = processLog.addEntry('Transcribing audio for captions...', 'in-progress');
+    transcribeLogIdRef.current = transcribeId;
+    app.updateState({ isTranscribing: true });
+
+    try {
+      const transcription = await api.transcribeAudio({ audioUrl }, { signal: controller.signal });
+      if (transcriptionSkippedRef.current) return;
+
+      app.updateState({
+        wordTimestamps: transcription.words,
+        isTranscribing: false
+      });
+      processLog.updateEntry(transcribeId, {
+        status: 'completed',
+        message: `Transcribed ${transcription.words.length} words for accurate captions`
+      });
+    } catch (transcribeErr: any) {
+      const skipped = transcriptionSkippedRef.current || controller.signal.aborted || transcribeErr?.name === 'AbortError';
+      app.updateState({ isTranscribing: false });
+
+      if (skipped) {
+        processLog.updateEntry(transcribeId, {
+          status: 'error',
+          message: 'Transcription skipped, using estimated timing'
+        });
+        return;
+      }
+
+      console.warn('Transcription failed, will use estimated timing:', transcribeErr);
+      processLog.updateEntry(transcribeId, {
+        status: 'error',
+        message: 'Transcription unavailable, using estimated timing'
+      });
+    } finally {
+      transcribeAbortRef.current = null;
+      transcribeLogIdRef.current = null;
+    }
+  };
+
+  const handleSkipTranscription = () => {
+    if (!app.isTranscribing) return;
+    transcriptionSkippedRef.current = true;
+    transcribeAbortRef.current?.abort();
+    transcribeAbortRef.current = null;
+    app.updateState({ isTranscribing: false, wordTimestamps: [] });
+
+    if (transcribeLogIdRef.current) {
+      processLog.updateEntry(transcribeLogIdRef.current, {
+        status: 'error',
+        message: 'Transcription skipped, using estimated timing'
+      });
+    }
+  };
 
   // Handle script from AI chat - with smooth transition
   const handleUseAIScript = (script: string, wordCount: number) => {
@@ -323,28 +385,8 @@ function ScriptVoiceoverStep() {
         details: result.audioUrl
       });
       
-      // Auto-transcribe for accurate captions (runs in background)
-      const transcribeId = processLog.addEntry('Transcribing audio for captions...', 'in-progress');
-      app.updateState({ isTranscribing: true });
-      
-      try {
-        const transcription = await api.transcribeAudio({ audioUrl: result.audioUrl });
-        app.updateState({ 
-          wordTimestamps: transcription.words,
-          isTranscribing: false 
-        });
-        processLog.updateEntry(transcribeId, { 
-          status: 'completed', 
-          message: `Transcribed ${transcription.words.length} words for accurate captions`
-        });
-      } catch (transcribeErr: any) {
-        console.warn('Transcription failed, will use estimated timing:', transcribeErr);
-        app.updateState({ isTranscribing: false });
-        processLog.updateEntry(transcribeId, { 
-          status: 'error', 
-          message: 'Transcription unavailable, using estimated timing'
-        });
-      }
+      // Auto-transcribe for accurate captions
+      await runTranscription(result.audioUrl);
       
       processLog.endProcess();
       toastSuccess('Voiceover generated successfully!');
@@ -386,27 +428,7 @@ function ScriptVoiceoverStep() {
       });
 
       // Auto-transcribe for accurate captions
-      const transcribeId = processLog.addEntry('Transcribing audio for captions...', 'in-progress');
-      app.updateState({ isTranscribing: true });
-
-      try {
-        const transcription = await api.transcribeAudio({ audioUrl: result.audioUrl });
-        app.updateState({ 
-          wordTimestamps: transcription.words,
-          isTranscribing: false 
-        });
-        processLog.updateEntry(transcribeId, { 
-          status: 'completed', 
-          message: `Transcribed ${transcription.words.length} words for accurate captions`
-        });
-      } catch (transcribeErr: any) {
-        console.warn('Transcription failed, will use estimated timing:', transcribeErr);
-        app.updateState({ isTranscribing: false });
-        processLog.updateEntry(transcribeId, { 
-          status: 'error', 
-          message: 'Transcription unavailable, using estimated timing'
-        });
-      }
+      await runTranscription(result.audioUrl);
 
       processLog.endProcess();
       toastSuccess('Audio uploaded successfully!');
@@ -640,9 +662,16 @@ function ScriptVoiceoverStep() {
         </Button>
         <div className="actions-bar-spacer" />
         {app.voiceoverUrl && (
-          <Button onClick={app.nextStep} variant="primary">
-            Continue →
-          </Button>
+          <>
+            {app.isTranscribing && (
+              <Button onClick={handleSkipTranscription} variant="secondary">
+                Skip Captioning
+              </Button>
+            )}
+            <Button onClick={app.nextStep} variant="primary" disabled={app.isTranscribing}>
+              {app.isTranscribing ? 'Transcribing...' : 'Continue'}
+            </Button>
+          </>
         )}
       </div>
     </Card>

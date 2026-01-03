@@ -56,10 +56,11 @@ export const api = {
         }),
 
     // Transcribe audio for accurate caption alignment
-    transcribeAudio: (data: TranscriptionRequest): Promise<TranscriptionResponse> =>
+    transcribeAudio: (data: TranscriptionRequest, options?: { signal?: AbortSignal }): Promise<TranscriptionResponse> =>
         fetchAPI('/voiceover/transcribe', {
             method: 'POST',
             body: JSON.stringify(data),
+            signal: options?.signal,
         }),
 
     // Get transcription model status

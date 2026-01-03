@@ -1,11 +1,7 @@
-import { pipeline, type AutomaticSpeechRecognitionPipeline } from '@huggingface/transformers';
 import fs from 'fs';
 import path from 'path';
-import { spawn } from 'child_process';
-import https from 'https';
-import http from 'http';
-import { createWriteStream, existsSync, mkdirSync } from 'fs';
-import { WaveFile } from 'wavefile';
+import { Worker } from 'worker_threads';
+import { randomUUID } from 'crypto';
 
 // Word-level timestamp from transcription
 export interface WordTimestamp {
@@ -21,261 +17,182 @@ export interface TranscriptionResult {
     duration: number;
 }
 
+interface TranscriptionOptions {
+    tempDir?: string;
+}
+
+interface WorkerWarmupMessage {
+    type: 'warmup';
+}
+
+interface WorkerTranscribeMessage {
+    type: 'transcribe';
+    id: string;
+    audioSource: string;
+    options?: TranscriptionOptions;
+}
+
+type WorkerRequestMessage = WorkerWarmupMessage | WorkerTranscribeMessage;
+
+interface WorkerResultMessage {
+    type: 'result';
+    id: string;
+    result: TranscriptionResult;
+}
+
+interface WorkerErrorMessage {
+    type: 'error';
+    id?: string;
+    error: {
+        message: string;
+        stack?: string;
+    };
+}
+
+interface WorkerReadyMessage {
+    type: 'ready';
+}
+
+type WorkerResponseMessage = WorkerResultMessage | WorkerErrorMessage | WorkerReadyMessage;
+
+interface PendingJob {
+    resolve: (result: TranscriptionResult) => void;
+    reject: (error: Error) => void;
+    request: WorkerTranscribeMessage;
+}
+
 // Whisper model configuration - using tiny.en for speed and accuracy
 const MODEL_NAME = 'Xenova/whisper-tiny.en';
 
-let transcriber: AutomaticSpeechRecognitionPipeline | null = null;
-let modelInitializing = false;
-let modelInitPromise: Promise<void> | null = null;
+let worker: Worker | null = null;
+let workerBusy = false;
+let workerReady = false;
+const queue: WorkerTranscribeMessage[] = [];
+const pending = new Map<string, PendingJob>();
 
-/**
- * Initialize Whisper model using Transformers.js
- * Model is automatically downloaded and cached by the library
- */
-async function initializeModel(): Promise<void> {
-    if (transcriber) return;
-    
-    if (modelInitializing && modelInitPromise) {
-        return modelInitPromise;
+function getWorkerPath() {
+    const tsPath = path.join(__dirname, '..', 'workers', 'transcription.worker.ts');
+    if (fs.existsSync(tsPath)) {
+        return tsPath;
     }
-
-    modelInitializing = true;
-    modelInitPromise = (async () => {
-        try {
-            console.log('[Transcription] Loading Whisper model (first run downloads ~40MB)...');
-            
-            // Create the ASR pipeline with Whisper
-            transcriber = await pipeline(
-                'automatic-speech-recognition',
-                MODEL_NAME,
-                { 
-                    dtype: 'fp32',
-                    device: 'cpu'
-                }
-            ) as AutomaticSpeechRecognitionPipeline;
-            
-            console.log('[Transcription] Whisper model loaded successfully');
-        } catch (error) {
-            console.error('[Transcription] Failed to initialize model:', error);
-            throw error;
-        } finally {
-            modelInitializing = false;
-        }
-    })();
-
-    return modelInitPromise;
+    return path.join(__dirname, '..', 'workers', 'transcription.worker.js');
 }
 
-/**
- * Convert audio file to WAV format required by Whisper (16kHz mono)
- */
-async function convertToWav(inputPath: string): Promise<string> {
-    const outputPath = inputPath.replace(/\.[^.]+$/, '_converted.wav');
-    
-    return new Promise((resolve, reject) => {
-        const ffmpeg = spawn('ffmpeg', [
-            '-i', inputPath,
-            '-ar', '16000',      // 16kHz sample rate
-            '-ac', '1',          // Mono
-            '-f', 'wav',         // WAV format
-            '-acodec', 'pcm_s16le', // 16-bit PCM
-            '-y',                // Overwrite output
-            outputPath
-        ]);
+function createWorker() {
+    const workerPath = getWorkerPath();
+    const execArgv = workerPath.endsWith('.ts') ? ['-r', 'tsx/cjs'] : [];
+    const newWorker = new Worker(workerPath, { execArgv });
 
-        let stderr = '';
-        ffmpeg.stderr.on('data', (data) => {
-            stderr += data.toString();
-        });
+    newWorker.on('message', (message: WorkerResponseMessage) => {
+        if (!message || typeof message !== 'object') return;
 
-        ffmpeg.on('close', (code) => {
-            if (code === 0) {
-                resolve(outputPath);
-            } else {
-                reject(new Error(`FFmpeg conversion failed: ${stderr}`));
+        if (message.type === 'ready') {
+            workerReady = true;
+            return;
+        }
+
+        if (message.type === 'error' && !message.id) {
+            console.warn('[Transcription] Worker warmup failed:', message.error?.message || 'Unknown error');
+            return;
+        }
+
+        const jobId = (message as WorkerResultMessage | WorkerErrorMessage).id;
+        if (!jobId) return;
+
+        const pendingJob = pending.get(jobId);
+        if (!pendingJob) return;
+
+        pending.delete(jobId);
+        workerBusy = false;
+
+        if (message.type === 'result') {
+            pendingJob.resolve(message.result);
+        } else if (message.type === 'error') {
+            const error = new Error(message.error?.message || 'Transcription worker failed');
+            if (message.error?.stack) {
+                error.stack = message.error.stack;
             }
-        });
+            pendingJob.reject(error);
+        } else {
+            pendingJob.reject(new Error('Unexpected transcription worker response'));
+        }
 
-        ffmpeg.on('error', reject);
+        runNext();
     });
-}
 
-/**
- * Load WAV file and convert to Float32Array for Whisper
- */
-function loadAudioData(wavPath: string): Float32Array {
-    const buffer = fs.readFileSync(wavPath);
-    const wav = new WaveFile(buffer);
-    
-    // Convert to 32-bit float
-    wav.toBitDepth('32f');
-    
-    // Get samples - wavefile returns Float64Array after toBitDepth('32f'), we need to convert
-    const rawSamples = wav.getSamples();
-    
-    // Handle stereo vs mono
-    if (Array.isArray(rawSamples)) {
-        // Stereo - merge channels
-        const channel0 = rawSamples[0] as unknown as number[];
-        const channel1 = rawSamples[1] as unknown as number[];
-        
-        if (rawSamples.length > 1 && channel1) {
-            const SCALING_FACTOR = Math.sqrt(2);
-            const merged = new Float32Array(channel0.length);
-            for (let i = 0; i < channel0.length; i++) {
-                merged[i] = SCALING_FACTOR * (channel0[i] + channel1[i]) / 2;
-            }
-            return merged;
-        }
-        // Mono in array form
-        return new Float32Array(channel0);
-    }
-    
-    // Single channel - convert to Float32Array
-    return new Float32Array(rawSamples as unknown as number[]);
-}
-
-/**
- * Download audio file from URL to local temp path
- * Returns { path, isTemporary } - isTemporary indicates if we created a new file that should be cleaned up
- */
-async function downloadAudio(url: string, tempDir: string): Promise<{ path: string; isTemporary: boolean }> {
-    const fileName = `audio_${Date.now()}.mp3`;
-    const filePath = path.join(tempDir, fileName);
-
-    // Handle local URLs (from our own server) - DO NOT mark as temporary since these are the original files
-    if (url.startsWith('/temp/') || url.startsWith('/uploads/')) {
-        const localPath = path.join(__dirname, '..', '..', url);
-        if (existsSync(localPath)) {
-            return { path: localPath, isTemporary: false };
-        }
-    }
-
-    // Handle full URLs - these are downloaded copies that should be cleaned up
-    const protocol = url.startsWith('https') ? https : http;
-    
-    return new Promise((resolve, reject) => {
-        const file = createWriteStream(filePath);
-        
-        protocol.get(url, (response) => {
-            if (response.statusCode === 301 || response.statusCode === 302) {
-                const redirectProtocol = response.headers.location!.startsWith('https') ? https : http;
-                redirectProtocol.get(response.headers.location!, (redirectResponse) => {
-                    redirectResponse.pipe(file);
-                    file.on('finish', () => {
-                        file.close();
-                        resolve({ path: filePath, isTemporary: true });
-                    });
-                }).on('error', reject);
-            } else {
-                response.pipe(file);
-                file.on('finish', () => {
-                    file.close();
-                    resolve({ path: filePath, isTemporary: true });
-                });
-            }
-        }).on('error', (err) => {
-            fs.unlink(filePath, () => {});
-            reject(err);
-        });
+    newWorker.on('error', (error) => {
+        console.error('[Transcription] Worker error:', error);
+        resetWorker(error);
     });
+
+    newWorker.on('exit', (code) => {
+        if (code !== 0) {
+            resetWorker(new Error(`Transcription worker exited with code ${code}`));
+        } else {
+            resetWorker(new Error('Transcription worker exited'));
+        }
+    });
+
+    return newWorker;
+}
+
+function ensureWorker() {
+    if (!worker) {
+        worker = createWorker();
+    }
+    return worker;
+}
+
+function runNext() {
+    if (!worker || workerBusy || queue.length === 0) return;
+
+    const nextJob = queue.shift();
+    if (!nextJob) return;
+
+    workerBusy = true;
+    worker.postMessage(nextJob);
+}
+
+function resetWorker(error: Error) {
+    if (worker) {
+        worker.removeAllListeners();
+        worker = null;
+    }
+
+    workerBusy = false;
+    workerReady = false;
+    queue.length = 0;
+
+    for (const pendingJob of pending.values()) {
+        pendingJob.reject(error);
+    }
+    pending.clear();
 }
 
 /**
  * Transcribe audio file and return word-level timestamps
  * This is the main function to use for accurate caption alignment
- * Uses Whisper via Transformers.js for high accuracy transcription
+ * Uses nodejs-whisper (native whisper.cpp) for fast, accurate transcription
  */
 export async function transcribeAudio(
     audioSource: string,
-    options?: {
-        tempDir?: string;
-    }
+    options?: TranscriptionOptions
 ): Promise<TranscriptionResult> {
-    const tempDir = options?.tempDir || path.join(__dirname, '..', '..', 'temp');
-    
-    // Ensure temp directory exists
-    if (!existsSync(tempDir)) {
-        mkdirSync(tempDir, { recursive: true });
-    }
+    ensureWorker();
 
-    // Initialize model if needed
-    await initializeModel();
+    const jobId = randomUUID();
+    const request: WorkerTranscribeMessage = {
+        type: 'transcribe',
+        id: jobId,
+        audioSource,
+        options
+    };
 
-    if (!transcriber) {
-        throw new Error('Whisper model not initialized');
-    }
-
-    console.log('[Transcription] Starting transcription for:', audioSource);
-
-    // Download audio if it's a URL
-    let audioPath = audioSource;
-    let shouldCleanupAudio = false;
-    
-    if (audioSource.startsWith('http') || audioSource.startsWith('/temp/') || audioSource.startsWith('/uploads/')) {
-        const result = await downloadAudio(audioSource, tempDir);
-        audioPath = result.path;
-        shouldCleanupAudio = result.isTemporary;
-    }
-
-    // Convert to WAV format required by Whisper
-    const wavPath = await convertToWav(audioPath);
-    
-    try {
-        // Load audio data as Float32Array
-        const audioData = loadAudioData(wavPath);
-        
-        // Transcribe with word-level timestamps
-        const rawResult = await transcriber(audioData, {
-            return_timestamps: 'word',
-            chunk_length_s: 30,
-            stride_length_s: 5
-        });
-
-        // Handle both single result and array result types
-        const result = Array.isArray(rawResult) ? rawResult[0] : rawResult;
-
-        // Convert Whisper output to our WordTimestamp format
-        const words: WordTimestamp[] = [];
-        
-        if (result && 'chunks' in result && result.chunks && Array.isArray(result.chunks)) {
-            for (const chunk of result.chunks) {
-                if (chunk.text && chunk.timestamp) {
-                    const [start, end] = chunk.timestamp;
-                    words.push({
-                        word: chunk.text.trim(),
-                        startTime: start ?? 0,
-                        endTime: end ?? start ?? 0,
-                        confidence: 1.0 // Whisper doesn't provide per-word confidence
-                    });
-                }
-            }
-        }
-
-        const fullText = (result && 'text' in result ? result.text : '') || words.map(w => w.word).join(' ');
-
-        // Calculate duration from last word
-        const duration = words.length > 0 
-            ? words[words.length - 1].endTime 
-            : 0;
-
-        console.log(`[Transcription] Completed: ${words.length} words, ${duration.toFixed(2)}s`);
-
-        return {
-            text: fullText.trim(),
-            words,
-            duration
-        };
-
-    } finally {
-        // Clean up temporary files - ONLY the WAV conversion and downloaded copies, NOT original voiceover files
-        if (existsSync(wavPath)) {
-            fs.unlinkSync(wavPath);
-        }
-        if (shouldCleanupAudio && existsSync(audioPath)) {
-            fs.unlinkSync(audioPath);
-        }
-    }
+    return new Promise((resolve, reject) => {
+        pending.set(jobId, { resolve, reject, request });
+        queue.push(request);
+        runNext();
+    });
 }
 
 /**
@@ -287,7 +204,7 @@ export function getTranscriptionStatus(): {
     modelExists: boolean;
 } {
     return {
-        modelLoaded: transcriber !== null,
+        modelLoaded: workerReady,
         modelPath: MODEL_NAME,
         modelExists: true // Transformers.js handles caching automatically
     };
@@ -298,7 +215,10 @@ export function getTranscriptionStatus(): {
  */
 export async function preloadTranscriptionModel(): Promise<void> {
     try {
-        await initializeModel();
+        const activeWorker = ensureWorker();
+        if (workerReady) return;
+        const message: WorkerRequestMessage = { type: 'warmup' };
+        activeWorker.postMessage(message);
     } catch (error) {
         console.warn('[Transcription] Failed to preload model:', error);
     }
