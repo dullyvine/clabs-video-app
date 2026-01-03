@@ -27,6 +27,7 @@ import { getTempFilePath, getUploadFilePath } from './file.service';
 const FFMPEG_USE_HARDWARE = process.env.FFMPEG_USE_HARDWARE !== 'false';
 const FFMPEG_MAX_PARALLEL_CLIPS = Math.max(1, Math.min(5, parseInt(process.env.FFMPEG_MAX_PARALLEL_CLIPS || '3', 10)));
 const FFMPEG_LOW_FPS_MODE = process.env.FFMPEG_LOW_FPS_MODE !== 'false';
+const FFMPEG_MOTION_FPS = Number(process.env.FFMPEG_MOTION_FPS || '');
 
 /**
  * Cached hardware encoder detection result
@@ -115,6 +116,33 @@ export function getOptimalFramerate(contentType: 'single-image' | 'multi-image' 
         default:
             return 30;
     }
+}
+
+function getMotionFramerate(durationSeconds: number): number {
+    if (Number.isFinite(FFMPEG_MOTION_FPS) && FFMPEG_MOTION_FPS > 0) {
+        return Math.round(FFMPEG_MOTION_FPS);
+    }
+
+    return 30;
+}
+
+function parseFps(rate?: string): number | null {
+    if (!rate) {
+        return null;
+    }
+
+    const parts = rate.split('/');
+    if (parts.length !== 2) {
+        return null;
+    }
+
+    const numerator = Number(parts[0]);
+    const denominator = Number(parts[1]);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+        return null;
+    }
+
+    return numerator / denominator;
 }
 
 /**
@@ -231,7 +259,8 @@ export async function processClipsInParallel<T, R>(
 }
 
 // Log optimization settings on startup
-console.log(`[FFmpeg Optimization] Settings: hardware=${FFMPEG_USE_HARDWARE}, maxParallelClips=${FFMPEG_MAX_PARALLEL_CLIPS}, lowFpsMode=${FFMPEG_LOW_FPS_MODE}`);
+const motionFpsSetting = Number.isFinite(FFMPEG_MOTION_FPS) && FFMPEG_MOTION_FPS > 0 ? FFMPEG_MOTION_FPS : 'auto';
+console.log(`[FFmpeg Optimization] Settings: hardware=${FFMPEG_USE_HARDWARE}, maxParallelClips=${FFMPEG_MAX_PARALLEL_CLIPS}, lowFpsMode=${FFMPEG_LOW_FPS_MODE}, motionFps=${motionFpsSetting}`);
 
 // ============================================================================
 // END PERFORMANCE OPTIMIZATION UTILITIES
@@ -683,11 +712,6 @@ export async function burnCaptions(
     const outputPath = getTempFilePath('mp4');
     const ext = path.extname(captionFilePath).toLowerCase();
     
-    const escapeFilterPath = (filePath: string) => filePath
-        .replace(/\\/g, '/')
-        .replace(/:/g, '\\:')
-        .replace(/'/g, "\\'");
-
     const normalizedCaptionPath = escapeFilterPath(captionFilePath);
     const windowsFontsDir = process.env.CAPTION_FONTS_DIR || 'C:/Windows/Fonts';
     const fontsDir = fs.existsSync(windowsFontsDir) ? escapeFilterPath(windowsFontsDir) : null;
@@ -750,6 +774,13 @@ const BLEND_MODE_MAP: Record<BlendMode, string> = {
     'color-burn': 'burn'
 };
 
+function escapeFilterPath(filePath: string) {
+    return filePath
+        .replace(/\\/g, '/')
+        .replace(/:/g, '\\:')
+        .replace(/'/g, "\\'");
+}
+
 function normalizeConcatPath(filePath: string) {
     return filePath.replace(/\\/g, '/');
 }
@@ -775,7 +806,7 @@ function mapBlendMode(mode?: BlendMode): string {
  * @param onProgress - Progress callback
  * @returns Path to the output video with overlays applied
  */
-async function applyVideoOverlays(
+export async function applyVideoOverlays(
     inputVideoPath: string,
     overlays?: InternalOverlay[],
     onProgress?: (progress: number) => void
@@ -908,6 +939,211 @@ async function applyVideoOverlays(
     });
 }
 
+function buildMotionFilter(
+    motionEffect: MotionEffect,
+    width: number,
+    height: number,
+    duration: number,
+    fps: number
+): string | null {
+    if (!motionEffect || motionEffect === 'none') {
+        return null;
+    }
+
+    const outWidth = Math.floor(width / 2) * 2;
+    const outHeight = Math.floor(height / 2) * 2;
+    const totalFrames = Math.max(1, Math.ceil(duration * fps));
+
+    const scaleFactor = 1.15;
+    const scaledWidth = Math.round(outWidth * scaleFactor);
+    const scaledHeight = Math.round(outHeight * scaleFactor);
+
+    const xAmplitude = Math.round((scaledWidth - outWidth) / 2);
+    const yAmplitude = Math.round((scaledHeight - outHeight) / 2);
+
+    switch (motionEffect) {
+        case 'zoom-in':
+            return `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}+${xAmplitude}*2*(1-n/${totalFrames})':'${outHeight}+${yAmplitude}*2*(1-n/${totalFrames})':'(in_w-out_w)/2':'(in_h-out_h)/2',scale=${outWidth}:${outHeight}`;
+        case 'zoom-out':
+            return `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}+${xAmplitude}*2*(n/${totalFrames})':'${outHeight}+${yAmplitude}*2*(n/${totalFrames})':'(in_w-out_w)/2':'(in_h-out_h)/2',scale=${outWidth}:${outHeight}`;
+        case 'pan':
+            return `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}':'${outHeight}':'(in_w-${outWidth})/2+${xAmplitude}*sin(n*4*PI/${totalFrames})':'(in_h-${outHeight})/2'`;
+        case 'float': {
+            const floatXAmp = Math.round(xAmplitude * 0.3);
+            const floatYAmp = Math.round(yAmplitude * 0.3);
+            return `scale=${scaledWidth}:${scaledHeight},crop='${outWidth}':'${outHeight}':'(in_w-${outWidth})/2+${floatXAmp}*sin(n*4*PI/${totalFrames})':'(in_h-${outHeight})/2+${floatYAmp}*cos(n*4*PI/${totalFrames})'`;
+        }
+        default:
+            return null;
+    }
+}
+
+export interface VideoPostProcessOptions {
+    inputVideoPath: string;
+    duration: number;
+    contentType: 'single-image' | 'multi-image' | 'stock-video';
+    outputPath?: string;
+    overlays?: InternalOverlay[];
+    captionFilePath?: string;
+    motionEffect?: MotionEffect;
+}
+
+export async function applyVideoPostProcessing(
+    options: VideoPostProcessOptions,
+    onProgress?: (progress: number) => void
+): Promise<string> {
+    const hasMotion = Boolean(options.motionEffect && options.motionEffect !== 'none');
+    const hasCaptions = Boolean(options.captionFilePath && fs.existsSync(options.captionFilePath));
+    const videoOverlays = (options.overlays || []).filter(
+        overlay => overlay?.type === 'video' && overlay.filePath && fs.existsSync(overlay.filePath)
+    );
+
+    if (options.captionFilePath && !hasCaptions) {
+        console.warn(`[FFmpeg PostProcess] Caption file not found: ${options.captionFilePath}`);
+    }
+
+    if (!hasMotion && !hasCaptions && videoOverlays.length === 0) {
+        return options.inputVideoPath;
+    }
+
+    const outputPath = options.outputPath || getTempFilePath('mp4');
+    const baseInfo = await getVideoInfo(options.inputVideoPath);
+    const baseDuration = Math.max(0, options.duration || baseInfo.duration || 0);
+    const baseFps = baseInfo.fps || 30;
+    const targetFps = hasMotion ? getMotionFramerate(baseDuration) : baseFps;
+    const normalizedFps = hasMotion ? Math.max(1, Math.round(targetFps)) : baseFps;
+    const useFpsFilter = hasMotion || Math.abs(normalizedFps - baseFps) > 0.1;
+
+    console.log(`[FFmpeg PostProcess] overlays=${videoOverlays.length}, motion=${hasMotion}, captions=${hasCaptions}, fps=${normalizedFps}`);
+
+    return new Promise((resolve, reject) => {
+        let command = ffmpeg().input(options.inputVideoPath);
+
+        videoOverlays.forEach((overlay) => {
+            command = command
+                .input(overlay.filePath!)
+                .inputOptions([
+                    '-stream_loop', '-1',
+                    '-t', String(baseDuration)
+                ]);
+        });
+
+        const filterParts: string[] = [];
+        const baseFilters: string[] = [];
+
+        if (useFpsFilter) {
+            baseFilters.push(`fps=${normalizedFps}`);
+        }
+
+        if (hasMotion) {
+            const motionFilter = buildMotionFilter(
+                options.motionEffect as MotionEffect,
+                baseInfo.width,
+                baseInfo.height,
+                baseDuration,
+                normalizedFps
+            );
+            if (motionFilter) {
+                baseFilters.push(motionFilter);
+            }
+        } else {
+            baseFilters.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
+        }
+
+        baseFilters.push('setsar=1', 'format=gbrap');
+        filterParts.push(`[0:v]${baseFilters.join(',')}[base]`);
+
+        let currentBase = 'base';
+
+        if (videoOverlays.length > 0) {
+            videoOverlays.forEach((overlay, index) => {
+                const inputIdx = index + 1;
+                const opacity = Math.max(0, Math.min(1, overlay.opacity ?? 1));
+                const blendMode = mapBlendMode(overlay.blendMode);
+                const scaledLabel = `scaled${index}`;
+                const resultLabel = `result${index}`;
+
+                filterParts.push(
+                    `[${inputIdx}:v]fps=${normalizedFps},scale=${baseInfo.width}:${baseInfo.height}:force_original_aspect_ratio=decrease,` +
+                    `pad=${baseInfo.width}:${baseInfo.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=gbrap,` +
+                    `setpts=N/(${normalizedFps}*TB)[${scaledLabel}]`
+                );
+
+                if (blendMode === 'normal') {
+                    if (opacity < 1) {
+                        filterParts.push(
+                            `[${currentBase}][${scaledLabel}]blend=all_mode='normal':all_opacity=${opacity}[${resultLabel}]`
+                        );
+                    } else {
+                        filterParts.push(
+                            `[${currentBase}][${scaledLabel}]overlay=0:0:format=auto:shortest=1:eof_action=repeat[${resultLabel}]`
+                        );
+                    }
+                } else {
+                    filterParts.push(
+                        `[${currentBase}][${scaledLabel}]blend=all_mode='${blendMode}':all_opacity=${opacity}[${resultLabel}]`
+                    );
+                }
+
+                currentBase = resultLabel;
+            });
+        }
+
+        if (hasCaptions) {
+            const captionPath = escapeFilterPath(options.captionFilePath as string);
+            const ext = path.extname(options.captionFilePath as string).toLowerCase();
+            const windowsFontsDir = process.env.CAPTION_FONTS_DIR || 'C:/Windows/Fonts';
+            const fontsDir = fs.existsSync(windowsFontsDir) ? escapeFilterPath(windowsFontsDir) : null;
+            const fontsFilter = fontsDir ? `:fontsdir='${fontsDir}'` : '';
+            const captionFilter = ext === '.ass'
+                ? `ass='${captionPath}'${fontsFilter}`
+                : `subtitles='${captionPath}'${fontsFilter}`;
+
+            filterParts.push(`[${currentBase}]format=yuv420p,${captionFilter}[final]`);
+        } else {
+            filterParts.push(`[${currentBase}]format=yuv420p[final]`);
+        }
+
+        const filterComplex = filterParts.join(';');
+
+        const encoderOptions = getEncoderOptions({
+            contentType: options.contentType,
+            durationSeconds: baseDuration,
+            includeAudio: false
+        }).filter(option => !option.startsWith('-r '));
+
+        command
+            .complexFilter(filterComplex)
+            .outputOptions([
+                '-map', '[final]',
+                '-map', '0:a?',
+                ...encoderOptions,
+                '-c:a', 'copy',
+                '-shortest',
+                '-t', String(baseDuration)
+            ])
+            .output(outputPath)
+            .on('start', (cmdLine) => {
+                console.log(`[FFmpeg PostProcess] Command: ${cmdLine.substring(0, 500)}...`);
+            })
+            .on('progress', (progress) => {
+                if (onProgress && progress.percent) {
+                    onProgress(Math.min(99, Math.floor(progress.percent)));
+                }
+            })
+            .on('end', () => {
+                console.log('[FFmpeg PostProcess] Completed successfully');
+                resolve(outputPath);
+            })
+            .on('error', (err, stdout, stderr) => {
+                console.error('[FFmpeg PostProcess] Error:', err.message);
+                console.error('[FFmpeg PostProcess] stderr:', stderr);
+                reject(err);
+            })
+            .run();
+    });
+}
+
 /**
  * Get video dimensions and metadata
  */
@@ -915,6 +1151,7 @@ interface VideoInfo {
     width: number;
     height: number;
     duration: number;
+    fps: number | null;
 }
 
 async function getVideoInfo(videoPath: string): Promise<VideoInfo> {
@@ -934,7 +1171,8 @@ async function getVideoInfo(videoPath: string): Promise<VideoInfo> {
             resolve({
                 width: videoStream.width || 1920,
                 height: videoStream.height || 1080,
-                duration: metadata.format.duration || 0
+                duration: metadata.format.duration || 0,
+                fps: parseFps(videoStream.avg_frame_rate) ?? parseFps(videoStream.r_frame_rate)
             });
         });
     });
@@ -1095,8 +1333,8 @@ export async function applyMotionEffect(
     const outWidth = Math.floor(width / 2) * 2;
     const outHeight = Math.floor(height / 2) * 2;
     
-    // Calculate frames - using 30fps
-    const fps = 30;
+    // Calculate frames - use configured motion framerate
+    const fps = getMotionFramerate(duration);
     const totalFrames = Math.ceil(duration * fps);
     
     // Build video filter based on effect type

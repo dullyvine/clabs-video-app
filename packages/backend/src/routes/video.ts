@@ -16,6 +16,8 @@ import {
     generateStockVideoComposition,
     calculateSmartVideoTiming,
     getAudioDuration,
+    applyVideoPostProcessing,
+    applyVideoOverlays,
     burnCaptions,
     applyMotionEffect
 } from '../services/ffmpeg.service';
@@ -389,9 +391,21 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
 
         console.log(`[Video Generation] ${overlays.length} overlay(s) ready for application`);
 
-        const onProgress = (progress: number) => {
+        const hasCaptionData = Boolean(request.script) || (request.wordTimestamps && request.wordTimestamps.length > 0);
+        const captionsEnabled = Boolean(request.captionsEnabled && hasCaptionData);
+        const hasMotionEffect = Boolean(request.motionEffect && request.motionEffect !== 'none' && request.flowType !== 'stock-video');
+        const useSinglePassPostprocess = process.env.FFMPEG_SINGLE_PASS_POSTPROCESS !== 'false';
+        const needsPostProcess = useSinglePassPostprocess && (captionsEnabled || hasMotionEffect || overlays.length > 0);
+
+        const updateProgress = (progress: number) => {
             updateJob(jobId, { progress: Math.min(99, progress) });
         };
+
+        const baseProgress = needsPostProcess
+            ? (progress: number) => updateProgress(Math.floor(progress * 0.7))
+            : updateProgress;
+
+        const baseOverlays = needsPostProcess ? [] : (overlays as any);
 
         if (request.flowType === 'single-image') {
             const imagePath = await resolveAssetPath(request.imageUrl);
@@ -402,9 +416,9 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                     audioPath,
                     audioDuration: voiceoverDuration,
                     imagePath,
-                    overlays: overlays as any
+                    overlays: baseOverlays
                 },
-                onProgress
+                baseProgress
             );
         } else if (request.flowType === 'multi-image') {
             const images = await Promise.all(request.images.map(async (img) => ({
@@ -419,9 +433,9 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                     audioPath,
                     audioDuration: voiceoverDuration,
                     images,
-                    overlays: overlays as any
+                    overlays: baseOverlays
                 },
-                onProgress
+                baseProgress
             );
         } else if (request.flowType === 'stock-video') {
             const videos = await Promise.all(request.videos.map(async (vid) => ({
@@ -438,87 +452,172 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                     audioDuration: voiceoverDuration,
                     videos,
                     loop: request.loop,
-                    overlays: overlays as any
+                    overlays: baseOverlays
                 },
-                onProgress
+                baseProgress
             );
         } else {
             throw new Error('Invalid flow type');
         }
 
-        // Apply motion effect for single-image and multi-image flows (not stock-video)
-        // Motion effects add subtle animation to static images
-        if (request.motionEffect && request.motionEffect !== 'none' && request.flowType !== 'stock-video') {
-            console.log(`[Video Generation] Applying motion effect: ${request.motionEffect}`);
-            updateJob(jobId, { progress: 75 });
-            
-            try {
-                videoPath = await applyMotionEffect(
-                    videoPath,
-                    request.motionEffect,
-                    voiceoverDuration,
-                    (progress) => {
-                        const scaledProgress = 75 + Math.floor(progress * 0.1);
-                        updateJob(jobId, { progress: Math.min(84, scaledProgress) });
-                    }
-                );
-                console.log(`[Video Generation] Motion effect applied successfully`);
-            } catch (motionError: any) {
-                console.error(`[Video Generation] Motion effect failed:`, motionError.message);
-                // Continue without motion effect rather than failing the whole job
-            }
-        }
+        let captionFilePath: string | null = null;
 
-        // Burn captions if enabled
-        const hasCaptionData = Boolean(request.script) || (request.wordTimestamps && request.wordTimestamps.length > 0);
-        if (request.captionsEnabled && hasCaptionData) {
-            console.log(`[Video Generation] Captions enabled, generating and burning...`);
-            const hasRealTimestamps = request.wordTimestamps && request.wordTimestamps.length > 0;
-            console.log(`[Video Generation] Using ${hasRealTimestamps ? 'REAL transcription' : 'estimated'} timestamps`);
-            updateJob(jobId, { progress: 85 });
-            
-            try {
-                // Generate captions from script (uses real timestamps if provided)
-                const captionResult = await generateCaptions({
-                    script: request.script || '',
-                    voiceoverDuration,
-                    style: request.captionStyle,
-                    wordTimestamps: request.wordTimestamps // Pass real timestamps if available
-                });
-                
-                // Save captions to file
-                const captionFilePath = await saveCaptionFile(
-                    captionResult.segments,
-                    request.captionStyle,
-                    'ass'
-                );
-                
-                console.log(`[Video Generation] Caption file saved: ${captionFilePath}`);
-                updateJob(jobId, { progress: 90 });
-                
-                // Burn captions into video
-                const captionedVideoPath = await burnCaptions(
-                    videoPath,
-                    captionFilePath,
-                    (progress) => {
-                        const scaledProgress = 90 + Math.floor(progress * 0.1);
-                        updateJob(jobId, { progress: Math.min(99, scaledProgress) });
-                    }
-                );
-                
-                // Clean up original video if captioned version is different
-                if (captionedVideoPath !== videoPath) {
-                    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
-                    videoPath = captionedVideoPath;
+        if (needsPostProcess) {
+            if (captionsEnabled) {
+                console.log(`[Video Generation] Captions enabled, generating for single-pass postprocess...`);
+                const hasRealTimestamps = request.wordTimestamps && request.wordTimestamps.length > 0;
+                console.log(`[Video Generation] Using ${hasRealTimestamps ? 'REAL transcription' : 'estimated'} timestamps`);
+                updateProgress(72);
+
+                try {
+                    const captionResult = await generateCaptions({
+                        script: request.script || '',
+                        voiceoverDuration,
+                        style: request.captionStyle,
+                        wordTimestamps: request.wordTimestamps
+                    });
+
+                    captionFilePath = await saveCaptionFile(
+                        captionResult.segments,
+                        request.captionStyle,
+                        'ass'
+                    );
+
+                    console.log(`[Video Generation] Caption file saved: ${captionFilePath}`);
+                } catch (captionError: any) {
+                    console.error(`[Video Generation] Caption generation failed:`, captionError.message);
+                    captionFilePath = null;
                 }
+            }
+
+            try {
+                updateProgress(74);
+                const postProcessProgress = (progress: number) => {
+                    updateProgress(70 + Math.floor(progress * 0.29));
+                };
+
+                const postProcessedPath = await applyVideoPostProcessing(
+                    {
+                        inputVideoPath: videoPath,
+                        duration: voiceoverDuration,
+                        contentType: request.flowType,
+                        overlays: overlays as any,
+                        captionFilePath: captionFilePath || undefined,
+                        motionEffect: hasMotionEffect ? request.motionEffect : 'none'
+                    },
+                    postProcessProgress
+                );
+
+                if (postProcessedPath !== videoPath) {
+                    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+                    videoPath = postProcessedPath;
+                }
+            } catch (postProcessError: any) {
+                console.error('[Video Generation] Single-pass postprocess failed, falling back:', postProcessError.message);
+
+                let fallbackPath = videoPath;
+
+                if (overlays.length > 0) {
+                    updateProgress(75);
+                    fallbackPath = await applyVideoOverlays(
+                        fallbackPath,
+                        overlays as any,
+                        (progress) => updateProgress(70 + Math.floor(progress * 0.15))
+                    );
+                }
+
+                if (hasMotionEffect) {
+                    updateProgress(82);
+                    fallbackPath = await applyMotionEffect(
+                        fallbackPath,
+                        request.motionEffect,
+                        voiceoverDuration,
+                        (progress) => updateProgress(80 + Math.floor(progress * 0.1))
+                    );
+                }
+
+                if (captionsEnabled && captionFilePath) {
+                    updateProgress(90);
+                    fallbackPath = await burnCaptions(
+                        fallbackPath,
+                        captionFilePath,
+                        (progress) => updateProgress(90 + Math.floor(progress * 0.1))
+                    );
+                }
+
+                if (fallbackPath !== videoPath) {
+                    try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+                    videoPath = fallbackPath;
+                }
+            } finally {
+                if (captionFilePath) {
+                    try { fs.unlinkSync(captionFilePath); } catch { /* ignore */ }
+                }
+            }
+        } else {
+            if (hasMotionEffect) {
+                console.log(`[Video Generation] Applying motion effect: ${request.motionEffect}`);
+                updateJob(jobId, { progress: 75 });
                 
-                // Clean up caption file
-                try { fs.unlinkSync(captionFilePath); } catch { /* ignore */ }
+                try {
+                    videoPath = await applyMotionEffect(
+                        videoPath,
+                        request.motionEffect,
+                        voiceoverDuration,
+                        (progress) => {
+                            const scaledProgress = 75 + Math.floor(progress * 0.1);
+                            updateJob(jobId, { progress: Math.min(84, scaledProgress) });
+                        }
+                    );
+                    console.log(`[Video Generation] Motion effect applied successfully`);
+                } catch (motionError: any) {
+                    console.error(`[Video Generation] Motion effect failed:`, motionError.message);
+                }
+            }
+
+            if (captionsEnabled) {
+                console.log(`[Video Generation] Captions enabled, generating and burning...`);
+                const hasRealTimestamps = request.wordTimestamps && request.wordTimestamps.length > 0;
+                console.log(`[Video Generation] Using ${hasRealTimestamps ? 'REAL transcription' : 'estimated'} timestamps`);
+                updateJob(jobId, { progress: 85 });
                 
-                console.log(`[Video Generation] Captions burned successfully`);
-            } catch (captionError: any) {
-                console.error(`[Video Generation] Caption burning failed:`, captionError.message);
-                // Continue without captions rather than failing the whole job
+                try {
+                    const captionResult = await generateCaptions({
+                        script: request.script || '',
+                        voiceoverDuration,
+                        style: request.captionStyle,
+                        wordTimestamps: request.wordTimestamps
+                    });
+                    
+                    const captionFilePath = await saveCaptionFile(
+                        captionResult.segments,
+                        request.captionStyle,
+                        'ass'
+                    );
+                    
+                    console.log(`[Video Generation] Caption file saved: ${captionFilePath}`);
+                    updateJob(jobId, { progress: 90 });
+                    
+                    const captionedVideoPath = await burnCaptions(
+                        videoPath,
+                        captionFilePath,
+                        (progress) => {
+                            const scaledProgress = 90 + Math.floor(progress * 0.1);
+                            updateJob(jobId, { progress: Math.min(99, scaledProgress) });
+                        }
+                    );
+                    
+                    if (captionedVideoPath !== videoPath) {
+                        try { fs.unlinkSync(videoPath); } catch { /* ignore */ }
+                        videoPath = captionedVideoPath;
+                    }
+                    
+                    try { fs.unlinkSync(captionFilePath); } catch { /* ignore */ }
+                    
+                    console.log(`[Video Generation] Captions burned successfully`);
+                } catch (captionError: any) {
+                    console.error(`[Video Generation] Caption burning failed:`, captionError.message);
+                }
             }
         }
 
