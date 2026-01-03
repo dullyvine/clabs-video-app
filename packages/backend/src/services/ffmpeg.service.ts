@@ -1,12 +1,241 @@
 import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { execSync } from 'child_process';
 import { BlendMode, Overlay, MotionEffect } from 'shared/src/types';
 import { getTempFilePath, getUploadFilePath } from './file.service';
 
 /**
  * FFmpeg service for video composition
+ * 
+ * Performance Optimizations:
+ * - Hardware acceleration detection (NVENC, AMF, QSV)
+ * - Dynamic thread allocation based on system cores
+ * - Low framerate encoding for still images (1-5fps vs 25fps)
+ * - Parallel clip processing for multi-image/stock-video flows
+ * - GOP optimization for faster seeking
  */
+
+// ============================================================================
+// PERFORMANCE OPTIMIZATION UTILITIES
+// ============================================================================
+
+/**
+ * Environment variable controls for optimizations
+ */
+const FFMPEG_USE_HARDWARE = process.env.FFMPEG_USE_HARDWARE !== 'false';
+const FFMPEG_MAX_PARALLEL_CLIPS = Math.max(1, Math.min(5, parseInt(process.env.FFMPEG_MAX_PARALLEL_CLIPS || '3', 10)));
+const FFMPEG_LOW_FPS_MODE = process.env.FFMPEG_LOW_FPS_MODE !== 'false';
+
+/**
+ * Cached hardware encoder detection result
+ */
+let cachedHardwareEncoder: string | null = null;
+let hardwareEncoderChecked = false;
+
+/**
+ * Detect available hardware encoder
+ * Priority: NVENC > AMF > QSV > libx264 (software fallback)
+ * Result is cached for performance
+ */
+export function detectHardwareEncoder(): string {
+    if (hardwareEncoderChecked) {
+        return cachedHardwareEncoder || 'libx264';
+    }
+
+    hardwareEncoderChecked = true;
+
+    if (!FFMPEG_USE_HARDWARE) {
+        console.log('[FFmpeg Optimization] Hardware acceleration disabled via environment');
+        cachedHardwareEncoder = null;
+        return 'libx264';
+    }
+
+    const encodersToTry = [
+        { name: 'h264_nvenc', label: 'NVIDIA NVENC' },
+        { name: 'h264_amf', label: 'AMD AMF' },
+        { name: 'h264_qsv', label: 'Intel QSV' },
+    ];
+
+    for (const encoder of encodersToTry) {
+        try {
+            // Test if encoder is available by running a minimal encode
+            execSync(
+                `ffmpeg -f lavfi -i color=black:s=64x64:d=0.1 -c:v ${encoder.name} -f null - 2>&1`,
+                { stdio: 'pipe', timeout: 5000 }
+            );
+            console.log(`[FFmpeg Optimization] Hardware encoder detected: ${encoder.label} (${encoder.name})`);
+            cachedHardwareEncoder = encoder.name;
+            return encoder.name;
+        } catch {
+            // Encoder not available, try next
+        }
+    }
+
+    console.log('[FFmpeg Optimization] No hardware encoder available, using libx264 (software)');
+    cachedHardwareEncoder = null;
+    return 'libx264';
+}
+
+/**
+ * Get optimal thread count based on system cores
+ * Leaves headroom for multiple simultaneous video jobs
+ */
+export function getOptimalThreadCount(): number {
+    const cpuCount = os.cpus().length;
+    // Use half of available cores, minimum 2, maximum 8
+    // This leaves room for 4 simultaneous video generation jobs
+    const threads = Math.max(2, Math.min(8, Math.floor(cpuCount / 2)));
+    return threads;
+}
+
+/**
+ * Get optimal framerate based on content type and duration
+ * - Single image: 1fps (or 5fps for better seeking on very long videos)
+ * - Multi-image: 5fps (preserves smooth appearance at transitions)
+ * - Stock video: native (cannot reduce, videos have actual motion)
+ */
+export function getOptimalFramerate(contentType: 'single-image' | 'multi-image' | 'stock-video', durationSeconds: number): number {
+    if (!FFMPEG_LOW_FPS_MODE) {
+        return 30; // Default to 30fps if optimization disabled
+    }
+
+    switch (contentType) {
+        case 'single-image':
+            // For very long videos (>30min), use 5fps for better seeking
+            // For shorter videos, 1fps is fine
+            return durationSeconds > 1800 ? 5 : 1;
+        case 'multi-image':
+            // 5fps for multi-image to ensure smooth clip transitions
+            return 5;
+        case 'stock-video':
+            // Stock videos keep their native framerate (return 0 to indicate "don't override")
+            return 0;
+        default:
+            return 30;
+    }
+}
+
+/**
+ * Get optimized encoder options based on content type and duration
+ * Returns array of FFmpeg output options
+ */
+export function getEncoderOptions(params: {
+    contentType: 'single-image' | 'multi-image' | 'stock-video';
+    durationSeconds: number;
+    includeAudio?: boolean;
+    crf?: number;
+}): string[] {
+    const { contentType, durationSeconds, includeAudio = true, crf = 28 } = params;
+    
+    const encoder = detectHardwareEncoder();
+    const threads = getOptimalThreadCount();
+    const fps = getOptimalFramerate(contentType, durationSeconds);
+    
+    const options: string[] = [];
+    
+    // Video codec
+    options.push(`-c:v ${encoder}`);
+    
+    // Encoder-specific options
+    if (encoder === 'libx264') {
+        options.push('-preset ultrafast');
+        options.push(`-crf ${crf}`);
+        
+        // Only use -tune stillimage for short single-image videos
+        // For longer videos, it actually slows down encoding
+        if (contentType === 'single-image' && durationSeconds <= 60) {
+            options.push('-tune stillimage');
+        }
+    } else if (encoder === 'h264_nvenc') {
+        options.push('-preset p1'); // Fastest NVENC preset
+        options.push(`-cq ${crf}`); // Constant quality mode
+        options.push('-rc vbr'); // Variable bitrate
+    } else if (encoder === 'h264_amf') {
+        options.push('-quality speed');
+        options.push(`-rc cqp -qp_i ${crf} -qp_p ${crf}`);
+    } else if (encoder === 'h264_qsv') {
+        options.push('-preset veryfast');
+        options.push(`-global_quality ${crf}`);
+    }
+    
+    // Framerate (only if not stock video)
+    if (fps > 0) {
+        options.push(`-r ${fps}`);
+    }
+    
+    // GOP size (keyframe interval) - roughly every 5 seconds at the given fps
+    // This helps with seeking without too much overhead
+    const gopSize = fps > 0 ? Math.max(fps * 5, 30) : 150;
+    options.push(`-g ${gopSize}`);
+    
+    // Pixel format
+    options.push('-pix_fmt yuv420p');
+    
+    // Thread count (only for software encoding)
+    if (encoder === 'libx264') {
+        options.push(`-threads ${threads}`);
+    }
+    
+    // Audio options
+    if (includeAudio) {
+        options.push('-c:a aac');
+        options.push('-b:a 192k');
+    }
+    
+    // Fast start for web playback
+    options.push('-movflags +faststart');
+    
+    return options;
+}
+
+/**
+ * Process clips in parallel with controlled concurrency
+ * @param items Array of items to process
+ * @param processor Function to process each item
+ * @param maxConcurrent Maximum concurrent operations (default: FFMPEG_MAX_PARALLEL_CLIPS)
+ * @param onProgress Progress callback (0-100)
+ */
+export async function processClipsInParallel<T, R>(
+    items: T[],
+    processor: (item: T, index: number) => Promise<R>,
+    maxConcurrent: number = FFMPEG_MAX_PARALLEL_CLIPS,
+    onProgress?: (progress: number) => void
+): Promise<R[]> {
+    const results: R[] = new Array(items.length);
+    let completedCount = 0;
+    
+    // Process in batches
+    for (let i = 0; i < items.length; i += maxConcurrent) {
+        const batch = items.slice(i, i + maxConcurrent);
+        const batchStartIndex = i;
+        
+        const batchPromises = batch.map(async (item, batchIndex) => {
+            const globalIndex = batchStartIndex + batchIndex;
+            const result = await processor(item, globalIndex);
+            results[globalIndex] = result;
+            
+            completedCount++;
+            if (onProgress) {
+                onProgress(Math.floor((completedCount / items.length) * 100));
+            }
+            
+            return result;
+        });
+        
+        await Promise.all(batchPromises);
+    }
+    
+    return results;
+}
+
+// Log optimization settings on startup
+console.log(`[FFmpeg Optimization] Settings: hardware=${FFMPEG_USE_HARDWARE}, maxParallelClips=${FFMPEG_MAX_PARALLEL_CLIPS}, lowFpsMode=${FFMPEG_LOW_FPS_MODE}`);
+
+// ============================================================================
+// END PERFORMANCE OPTIMIZATION UTILITIES
+// ============================================================================
 
 export interface VideoCompositionOptions {
     audioPath: string;
@@ -105,6 +334,16 @@ export async function generateSingleImageVideo(
     onProgress?: (progress: number) => void
 ): Promise<string> {
     const outputPath = options.outputPath || getTempFilePath('mp4');
+    
+    // Get optimized encoder options for single image content
+    const encoderOptions = getEncoderOptions({
+        contentType: 'single-image',
+        durationSeconds: options.audioDuration,
+        includeAudio: true
+    });
+    
+    const fps = getOptimalFramerate('single-image', options.audioDuration);
+    console.log(`[FFmpeg Single-Image] Generating ${options.audioDuration.toFixed(1)}s video at ${fps}fps (${Math.ceil(options.audioDuration * fps)} frames)`);
 
     return new Promise((resolve, reject) => {
         let command = ffmpeg();
@@ -123,17 +362,11 @@ export async function generateSingleImageVideo(
             // In production, use FFmpeg filter_complex for blending
         }
 
-        // Output options
+        // Output options - OPTIMIZED
         command = command
             .outputOptions([
-                '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
-                '-c:v libx264',
-                '-preset ultrafast',
-                '-crf 28',
-                '-tune stillimage',
-                '-c:a aac',
-                '-b:a 192k',
-                '-threads 4',
+                '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                ...encoderOptions,
                 '-shortest'
             ])
             .output(outputPath);
@@ -183,44 +416,63 @@ export async function generateMultiImageVideo(
     onProgress?: (progress: number) => void
 ): Promise<string> {
     const outputPath = options.outputPath || getTempFilePath('mp4');
+    
+    // Get optimized encoder options for multi-image clip generation
+    const clipEncoderOptions = getEncoderOptions({
+        contentType: 'multi-image',
+        durationSeconds: options.audioDuration,
+        includeAudio: false // Clips don't need audio, only final output
+    });
+    
+    const fps = getOptimalFramerate('multi-image', options.audioDuration);
+    console.log(`[FFmpeg Multi-Image] Generating ${options.images.length} clips in parallel at ${fps}fps`);
 
-    // First, create individual video clips for each image
-    const videoClips: string[] = [];
-
-    for (let i = 0; i < options.images.length; i++) {
-        const { imagePath, duration } = options.images[i];
-        const clipPath = getTempFilePath('mp4');
-
-        await new Promise<void>((resolve, reject) => {
-            ffmpeg()
-                .input(imagePath)
-                .inputOptions(['-loop 1', `-t ${duration}`])
-                .outputOptions([
-                    '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p',
-                    '-c:v libx264',
-                    '-preset ultrafast',
-                    '-crf 28',
-                    '-tune stillimage',
-                    '-r 30',
-                    '-threads 4'
-                ])
-                .output(clipPath)
-                .on('end', () => resolve())
-                .on('error', (err) => reject(err))
-                .run();
-        });
-
-        videoClips.push(clipPath);
-
-        if (onProgress) {
-            onProgress(Math.floor((i / options.images.length) * 50));
+    // Process clips in parallel using the parallel processor
+    const videoClips = await processClipsInParallel(
+        options.images,
+        async (image, index) => {
+            const { imagePath, duration } = image;
+            const clipPath = getTempFilePath('mp4');
+            
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(imagePath)
+                    .inputOptions(['-loop 1', `-t ${duration}`])
+                    .outputOptions([
+                        '-vf scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                        ...clipEncoderOptions.filter(opt => !opt.startsWith('-c:a') && !opt.startsWith('-b:a')), // Remove audio options for clips
+                        '-an' // No audio for individual clips
+                    ])
+                    .output(clipPath)
+                    .on('end', () => resolve())
+                    .on('error', (err) => reject(err))
+                    .run();
+            });
+            
+            return clipPath;
+        },
+        FFMPEG_MAX_PARALLEL_CLIPS,
+        (clipProgress) => {
+            if (onProgress) {
+                // Clip generation is 0-50% of total progress
+                onProgress(Math.floor(clipProgress * 0.5));
+            }
         }
-    }
+    );
+    
+    console.log(`[FFmpeg Multi-Image] All ${videoClips.length} clips generated, concatenating...`);
 
     // Concatenate all video clips
     const concatListPath = getTempFilePath('txt');
     const concatList = videoClips.map(clip => `file '${normalizeConcatPath(clip)}'`).join('\n');
     fs.writeFileSync(concatListPath, concatList);
+    
+    // Get encoder options for final concatenation
+    const finalEncoderOptions = getEncoderOptions({
+        contentType: 'multi-image',
+        durationSeconds: options.audioDuration,
+        includeAudio: true
+    });
 
     return new Promise((resolve, reject) => {
         let command = ffmpeg()
@@ -228,13 +480,7 @@ export async function generateMultiImageVideo(
             .inputOptions(['-f concat', '-safe 0'])
             .input(options.audioPath)
             .outputOptions([
-                '-c:v libx264',
-                '-preset ultrafast',
-                '-crf 28',
-                '-pix_fmt yuv420p',
-                '-c:a aac',
-                '-b:a 192k',
-                '-threads 4',
+                ...finalEncoderOptions,
                 '-shortest'
             ])
             .output(outputPath);
@@ -291,53 +537,60 @@ export async function generateStockVideoComposition(
     // Calculate smart timing based on audio duration
     const timingSlots = await calculateSmartVideoTiming(options.videos, options.audioDuration);
     
-    console.log(`[Stock Video] Processing ${timingSlots.length} videos with smart timing`);
-
-    // Create individual clips with correct durations
-    const processedClips: string[] = [];
+    // Get optimized encoder options for stock video (keeps native framerate)
+    const clipEncoderOptions = getEncoderOptions({
+        contentType: 'stock-video',
+        durationSeconds: options.audioDuration,
+        includeAudio: false
+    });
     
-    for (let i = 0; i < timingSlots.length; i++) {
-        const slot = timingSlots[i];
-        const clipPath = getTempFilePath('mp4');
-        
-        if (onProgress) {
-            onProgress(Math.floor((i / timingSlots.length) * 40));
-        }
-        
-        await new Promise<void>((resolve, reject) => {
-            let cmd = ffmpeg().input(slot.videoPath);
+    console.log(`[FFmpeg Stock-Video] Processing ${timingSlots.length} videos in parallel with smart timing`);
+
+    // Process clips in parallel using the parallel processor
+    const processedClips = await processClipsInParallel(
+        timingSlots,
+        async (slot, index) => {
+            const clipPath = getTempFilePath('mp4');
             
-            // If video is shorter than target, loop it
-            if (slot.needsLoop) {
-                cmd = cmd.inputOptions([
-                    '-stream_loop', '-1',
-                    '-t', String(slot.targetDuration)
-                ]);
-            }
-            
-            cmd = cmd.outputOptions([
-                '-c:v libx264',
-                '-preset ultrafast',
-                '-crf 28',
-                '-pix_fmt yuv420p',
-                '-r 30',
-                '-threads 4',
-                '-t', String(slot.targetDuration),
-                '-an' // No audio for clips
-            ])
-            .output(clipPath)
-            .on('end', () => resolve())
-            .on('error', (err) => {
-                console.error(`[Stock Video] Error processing clip ${i}:`, err.message);
-                reject(err);
+            await new Promise<void>((resolve, reject) => {
+                let cmd = ffmpeg().input(slot.videoPath);
+                
+                // If video is shorter than target, loop it
+                if (slot.needsLoop) {
+                    cmd = cmd.inputOptions([
+                        '-stream_loop', '-1',
+                        '-t', String(slot.targetDuration)
+                    ]);
+                }
+                
+                cmd = cmd.outputOptions([
+                    ...clipEncoderOptions.filter(opt => !opt.startsWith('-c:a') && !opt.startsWith('-b:a')),
+                    '-t', String(slot.targetDuration),
+                    '-an' // No audio for clips
+                ])
+                .output(clipPath)
+                .on('end', () => resolve())
+                .on('error', (err) => {
+                    console.error(`[Stock Video] Error processing clip ${index}:`, err.message);
+                    reject(err);
+                });
+                
+                cmd.run();
             });
             
-            cmd.run();
-        });
-        
-        processedClips.push(clipPath);
-        console.log(`[Stock Video] Processed clip ${i + 1}/${timingSlots.length}: ${slot.targetDuration.toFixed(1)}s`);
-    }
+            console.log(`[FFmpeg Stock-Video] Processed clip ${index + 1}/${timingSlots.length}: ${slot.targetDuration.toFixed(1)}s`);
+            return clipPath;
+        },
+        FFMPEG_MAX_PARALLEL_CLIPS,
+        (clipProgress) => {
+            if (onProgress) {
+                // Clip generation is 0-40% of total progress
+                onProgress(Math.floor(clipProgress * 0.4));
+            }
+        }
+    );
+    
+    console.log(`[FFmpeg Stock-Video] All ${processedClips.length} clips processed, concatenating...`);
 
     // Concatenate all processed clips
     const concatListPath = getTempFilePath('txt');
@@ -345,6 +598,13 @@ export async function generateStockVideoComposition(
         .map(clip => `file '${normalizeConcatPath(clip)}'`)
         .join('\n');
     fs.writeFileSync(concatListPath, concatList);
+    
+    // Get encoder options for final concatenation
+    const finalEncoderOptions = getEncoderOptions({
+        contentType: 'stock-video',
+        durationSeconds: options.audioDuration,
+        includeAudio: true
+    });
 
     return new Promise((resolve, reject) => {
         let command = ffmpeg()
@@ -352,13 +612,7 @@ export async function generateStockVideoComposition(
             .inputOptions(['-f concat', '-safe 0'])
             .input(options.audioPath)
             .outputOptions([
-                '-c:v libx264',
-                '-preset ultrafast',
-                '-crf 28',
-                '-pix_fmt yuv420p',
-                '-c:a aac',
-                '-b:a 192k',
-                '-threads 4',
+                ...finalEncoderOptions,
                 '-shortest'
             ])
             .output(outputPath);
