@@ -30,6 +30,24 @@ const API_BASE = process.env.NODE_ENV === 'production'
     ? '/api' 
     : 'http://localhost:3001/api';
 
+// Upload base URL for file uploads:
+// - File uploads bypass Next.js proxy to avoid body size limits
+// - In production, uses NEXT_PUBLIC_BACKEND_URL or falls back to relative URL
+// - In development, uses localhost:3001 directly
+const getUploadBaseUrl = () => {
+    if (typeof window !== 'undefined') {
+        // Client-side: check for env var or use relative URL
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+        if (backendUrl) {
+            return `${backendUrl}/api`;
+        }
+        // In production, use same origin (works if backend is on same domain)
+        // Or use relative path through Next.js rewrites
+        return '/api';
+    }
+    return process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api';
+};
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${endpoint}`, {
         ...options,
@@ -88,7 +106,7 @@ export const api = {
         const formData = new FormData();
         formData.append('audio', file);
 
-        const response = await fetch(`${API_BASE}/voiceover/upload`, {
+        const response = await fetch(`${getUploadBaseUrl()}/voiceover/upload`, {
             method: 'POST',
             body: formData,
         });
@@ -138,7 +156,7 @@ export const api = {
         const formData = new FormData();
         formData.append('image', file);
 
-        const response = await fetch(`${API_BASE}/images/upload`, {
+        const response = await fetch(`${getUploadBaseUrl()}/images/upload`, {
             method: 'POST',
             body: formData,
         });
@@ -194,7 +212,7 @@ export const api = {
         const formData = new FormData();
         formData.append('overlay', file);
 
-        const response = await fetch(`${API_BASE}/video/overlay/upload`, {
+        const response = await fetch(`${getUploadBaseUrl()}/video/overlay/upload`, {
             method: 'POST',
             body: formData,
         });

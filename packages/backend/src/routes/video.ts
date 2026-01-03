@@ -530,7 +530,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                     updateProgress(82);
                     fallbackPath = await applyMotionEffect(
                         fallbackPath,
-                        request.motionEffect,
+                        request.motionEffect || 'none',
                         voiceoverDuration,
                         (progress) => updateProgress(80 + Math.floor(progress * 0.1))
                     );
@@ -562,7 +562,7 @@ async function generateVideoAsync(jobId: string, request: VideoGenerationRequest
                 try {
                     videoPath = await applyMotionEffect(
                         videoPath,
-                        request.motionEffect,
+                        request.motionEffect || 'none',
                         voiceoverDuration,
                         (progress) => {
                             const scaledProgress = 75 + Math.floor(progress * 0.1);

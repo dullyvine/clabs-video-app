@@ -701,6 +701,12 @@ async function generateGeminiVoiceover(
 }
 
 /**
+ * Minimum text length for Gemini TTS to work reliably
+ * Very short texts (< 10 chars) can cause the model to try generating text instead of audio
+ */
+const MIN_TTS_TEXT_LENGTH = 10;
+
+/**
  * Generate a single Gemini TTS audio file (no chunking) with retry logic
  */
 async function generateSingleGeminiAudio(
@@ -713,16 +719,23 @@ async function generateSingleGeminiAudio(
         throw new Error('GEMINI_API_KEY is not configured');
     }
 
+    // Validate minimum text length - very short texts cause "Model tried to generate text" errors
+    if (text.trim().length < MIN_TTS_TEXT_LENGTH) {
+        throw new Error(`Text too short for TTS. Minimum ${MIN_TTS_TEXT_LENGTH} characters required, got ${text.trim().length}. Please provide a longer script.`);
+    }
+
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const generativeModel = genAI.getGenerativeModel({
-                model: model
+                model: model,
+                // System instruction to ensure TTS-only output
+                systemInstruction: 'You are a text-to-speech system. Convert the provided text to speech audio. Do not generate any text responses, only generate audio output.'
             });
 
             const result = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts: [{ text }] }],
+                contents: [{ role: 'user', parts: [{ text: `Please read aloud the following text: "${text}"` }] }],
                 generationConfig: {
                     responseModalities: ['AUDIO'],
                     speechConfig: {
@@ -809,16 +822,23 @@ async function generateSingleGeminiAudioWithRateLimit(
         throw new Error('GEMINI_API_KEY is not configured');
     }
 
+    // Validate minimum text length - very short texts cause "Model tried to generate text" errors
+    if (text.trim().length < MIN_TTS_TEXT_LENGTH) {
+        throw new Error(`Text too short for TTS. Minimum ${MIN_TTS_TEXT_LENGTH} characters required, got ${text.trim().length}. Please provide a longer script.`);
+    }
+
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             const generativeModel = genAI.getGenerativeModel({
-                model: model
+                model: model,
+                // System instruction to ensure TTS-only output
+                systemInstruction: 'You are a text-to-speech system. Convert the provided text to speech audio. Do not generate any text responses, only generate audio output.'
             });
 
             const result = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts: [{ text }] }],
+                contents: [{ role: 'user', parts: [{ text: `Please read aloud the following text: "${text}"` }] }],
                 generationConfig: {
                     responseModalities: ['AUDIO'],
                     speechConfig: {

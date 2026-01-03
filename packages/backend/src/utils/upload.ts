@@ -13,6 +13,9 @@ const uploadsDir = path.join(__dirname, '../../uploads');
     }
 });
 
+// File size limit: 100MB for audio/video files
+const FILE_SIZE_LIMIT = 100 * 1024 * 1024; // 100MB
+
 /**
  * General file upload storage (for permanent files if needed)
  * Files go to /uploads directory
@@ -42,7 +45,17 @@ const tempStorage = multer.diskStorage({
 });
 
 // Default upload (to uploads folder)
-export const upload = multer({ storage: uploadsStorage });
+export const upload = multer({ 
+    storage: uploadsStorage,
+    limits: {
+        fileSize: FILE_SIZE_LIMIT
+    }
+});
 
-// Temporary upload (to temp folder - for overlays)
-export const tempUpload = multer({ storage: tempStorage });
+// Temporary upload (to temp folder - for overlays and voiceovers)
+export const tempUpload = multer({ 
+    storage: tempStorage,
+    limits: {
+        fileSize: FILE_SIZE_LIMIT
+    }
+});
