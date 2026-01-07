@@ -13,8 +13,9 @@ const uploadsDir = path.join(__dirname, '../../uploads');
     }
 });
 
-// File size limit: 100MB for audio/video files
-const FILE_SIZE_LIMIT = 100 * 1024 * 1024; // 100MB
+// File size limit: 500MB for audio/video files
+// This matches the Next.js middlewareClientMaxBodySize in next.config.ts
+const FILE_SIZE_LIMIT = 500 * 1024 * 1024; // 500MB
 
 /**
  * General file upload storage (for permanent files if needed)

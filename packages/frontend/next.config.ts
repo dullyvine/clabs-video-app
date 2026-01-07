@@ -11,8 +11,11 @@ const nextConfig: NextConfig = {
   experimental: {
     // Allow larger request bodies in server actions
     serverActions: {
-      bodySizeLimit: '100mb',
+      bodySizeLimit: '500mb',
     },
+    // Allow larger request bodies through middleware/rewrites (fixes Dokploy upload issues)
+    // Default is 10MB which causes "socket hang up" errors for large files
+    middlewareClientMaxBodySize: '500mb',
   },
   
   // Proxy API requests to backend in production
