@@ -559,13 +559,33 @@ export async function editImage(
     // Determine if it's a local file path or URL
     if (imageUrl.startsWith('/temp/') || imageUrl.startsWith('/uploads/')) {
         // Local file - read from disk
+        // Extract just the filename from the URL path
+        const filename = path.basename(imageUrl);
         const basePath = path.join(__dirname, '../../');
-        const fullPath = imageUrl.startsWith('/temp/')
-            ? path.join(basePath, imageUrl)
-            : path.join(basePath, imageUrl);
+        
+        // Determine which directory to look in
+        let fullPath: string;
+        if (imageUrl.startsWith('/temp/')) {
+            fullPath = path.join(basePath, 'temp', filename);
+        } else {
+            fullPath = path.join(basePath, 'uploads', filename);
+        }
+
+        console.log(`[Image Edit] Looking for file at: ${fullPath}`);
 
         if (!fs.existsSync(fullPath)) {
-            throw new Error(`Image file not found: ${fullPath}`);
+            // Try the other directory as fallback
+            const altPath = imageUrl.startsWith('/temp/')
+                ? path.join(basePath, 'uploads', filename)
+                : path.join(basePath, 'temp', filename);
+            
+            console.log(`[Image Edit] File not found, trying alternate path: ${altPath}`);
+            
+            if (fs.existsSync(altPath)) {
+                fullPath = altPath;
+            } else {
+                throw new Error(`Image file not found: ${fullPath} (also checked ${altPath})`);
+            }
         }
 
         const imageBuffer = fs.readFileSync(fullPath);
