@@ -13,10 +13,8 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '500mb',
     },
-    // Allow larger request bodies through middleware (default is 10MB)
-    middlewareClientMaxBodySize: '500mb',
     // Allow larger request bodies through rewrites/proxy (default is 10MB)
-    // This is critical for file uploads that go through Next.js rewrites to the backend
+    // This replaces middlewareClientMaxBodySize (deprecated)
     proxyClientMaxBodySize: '500mb',
     // Increase proxy timeout for large file uploads (default is 30s)
     proxyTimeout: 120000,
