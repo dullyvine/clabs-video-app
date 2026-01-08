@@ -20,8 +20,23 @@ import {
     ChatModelsResponse,
     TranscriptionRequest,
     TranscriptionResponse,
-    TranscriptionStatus
+    TranscriptionStatus,
+    AuthStatus,
+    AuthResponse,
+    MeResponse,
+    Project,
+    ProjectListResponse,
+    ProjectResponse
 } from 'shared/src/types';
+
+// Auth token storage key
+const AUTH_TOKEN_KEY = 'clabs-auth-token';
+
+// Get auth token from localStorage
+function getAuthToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+}
 
 // API base URL:
 // - Production: use relative '/api' (Next.js rewrites proxy to backend)
@@ -48,13 +63,25 @@ const getUploadBaseUrl = () => {
     return process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001/api';
 };
 
+// Build headers with optional auth
+function buildHeaders(additionalHeaders?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...additionalHeaders
+    };
+    
+    const token = getAuthToken();
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return headers;
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${endpoint}`, {
         ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...options?.headers,
-        },
+        headers: buildHeaders(options?.headers as Record<string, string>),
     });
 
     if (!response.ok) {
@@ -66,6 +93,69 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const api = {
+    // ============================================
+    // AUTH
+    // ============================================
+    
+    getAuthStatus: (): Promise<AuthStatus> =>
+        fetchAPI('/auth/status'),
+    
+    loginWithEmail: (email: string, name?: string): Promise<AuthResponse> =>
+        fetchAPI('/auth/login/email', {
+            method: 'POST',
+            body: JSON.stringify({ email, name })
+        }),
+    
+    getGoogleAuthUrl: (): Promise<{ url: string }> =>
+        fetchAPI('/auth/google/url'),
+    
+    getCurrentUser: (): Promise<MeResponse> =>
+        fetchAPI('/auth/me'),
+    
+    logout: (): Promise<{ success: boolean }> =>
+        fetchAPI('/auth/logout', { method: 'POST' }),
+    
+    verifyToken: (): Promise<{ valid: boolean; userId: string }> =>
+        fetchAPI('/auth/verify'),
+    
+    // ============================================
+    // PROJECTS
+    // ============================================
+    
+    listProjects: (): Promise<ProjectListResponse> =>
+        fetchAPI('/projects'),
+    
+    getCurrentProject: (): Promise<ProjectResponse> =>
+        fetchAPI('/projects/current'),
+    
+    createProject: (name?: string): Promise<ProjectResponse> =>
+        fetchAPI('/projects', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+        }),
+    
+    getProject: (projectId: string): Promise<ProjectResponse> =>
+        fetchAPI(`/projects/${projectId}`),
+    
+    updateProject: (projectId: string, updates: Partial<Project>): Promise<ProjectResponse> =>
+        fetchAPI(`/projects/${projectId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(updates)
+        }),
+    
+    syncProjectState: (projectId: string, state: Record<string, any>): Promise<ProjectResponse> =>
+        fetchAPI(`/projects/${projectId}/sync`, {
+            method: 'PUT',
+            body: JSON.stringify(state)
+        }),
+    
+    deleteProject: (projectId: string): Promise<{ success: boolean }> =>
+        fetchAPI(`/projects/${projectId}`, { method: 'DELETE' }),
+    
+    // ============================================
+    // VOICEOVER
+    // ============================================
+    
     // Voiceover
     generateVoiceover: (data: VoiceoverRequest): Promise<VoiceoverResponse> =>
         fetchAPI('/voiceover/generate', {
@@ -106,8 +196,15 @@ export const api = {
         const formData = new FormData();
         formData.append('audio', file);
 
+        const headers: Record<string, string> = {};
+        const token = getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${getUploadBaseUrl()}/voiceover/upload`, {
             method: 'POST',
+            headers,
             body: formData,
         });
 
@@ -156,8 +253,15 @@ export const api = {
         const formData = new FormData();
         formData.append('image', file);
 
+        const headers: Record<string, string> = {};
+        const token = getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${getUploadBaseUrl()}/images/upload`, {
             method: 'POST',
+            headers,
             body: formData,
         });
 
@@ -212,8 +316,15 @@ export const api = {
         const formData = new FormData();
         formData.append('overlay', file);
 
+        const headers: Record<string, string> = {};
+        const token = getAuthToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${getUploadBaseUrl()}/video/overlay/upload`, {
             method: 'POST',
+            headers,
             body: formData,
         });
 

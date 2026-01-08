@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp, SelectedStockVideo } from '@/contexts/AppContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -14,6 +15,7 @@ import { QueuePanel } from '@/components/QueuePanel';
 import { ImageEditModal } from '@/components/ImageEditModal';
 import { TimelineEditor, TimelineSlot as TimelineEditorSlot } from '@/components/TimelineEditor';
 import CaptionPreview from '@/components/CaptionPreview';
+import { UserMenu, LoginModal } from '@/components/LoginModal';
 import { api } from '@/lib/api';
 import { useToast } from '@/contexts/ToastContext';
 import { useQueue } from '@/contexts/QueueContext';
@@ -30,9 +32,11 @@ import {
 
 export default function Home() {
   const app = useApp();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { queue, clearAll: clearQueue } = useQueue();
   const { showToast } = useToast();
   const [isClearing, setIsClearing] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const handleStartNewProject = () => {
     app.clearStorage();
@@ -56,7 +60,7 @@ export default function Home() {
       clearQueue();
       // Clear all data (browser + server)
       await app.clearAllData();
-      showToast('All temporary data cleared', 'success');
+      showToast('Your temporary data cleared', 'success');
     } catch (error) {
       console.error('Failed to clear all data:', error);
       showToast('Failed to clear server data, but browser data was cleared', 'warning');
@@ -64,6 +68,59 @@ export default function Home() {
       setIsClearing(false);
     }
   };
+
+  // Show loading state while checking auth
+  if (authLoading) {
+    return (
+      <main className="container">
+        <div className="auth-loading">
+          <LoadingSpinner size="large" />
+          <p>Loading...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Require authentication - show login screen if not logged in
+  if (!isAuthenticated) {
+    return (
+      <main className="container">
+        <div className="auth-required">
+          <div className="auth-required-content">
+            <h1>Video Generator</h1>
+            <p className="subtitle">Transform scripts into YouTube videos with AI-powered voiceovers and visuals</p>
+            
+            <div className="auth-features">
+              <div className="auth-feature">
+                <span className="auth-feature-icon">🎙️</span>
+                <span>AI Voiceovers</span>
+              </div>
+              <div className="auth-feature">
+                <span className="auth-feature-icon">🎨</span>
+                <span>AI Image Generation</span>
+              </div>
+              <div className="auth-feature">
+                <span className="auth-feature-icon">🎬</span>
+                <span>Auto Video Editing</span>
+              </div>
+            </div>
+
+            <button 
+              className="auth-signin-button"
+              onClick={() => setShowLoginModal(true)}
+            >
+              Sign In to Get Started
+            </button>
+            
+            <p className="auth-note">Sign in with Google to save your projects and access them anywhere</p>
+          </div>
+        </div>
+        {showLoginModal && (
+          <LoginModal onClose={() => setShowLoginModal(false)} />
+        )}
+      </main>
+    );
+  }
 
   return (
     <main className="container">
@@ -75,6 +132,7 @@ export default function Home() {
           <p className="subtitle">Transform scripts into YouTube videos with AI-powered voiceovers and visuals</p>
         </div>
         <div className="app-header-actions">
+          <UserMenu />
           <button
             onClick={app.clearStorage}
             className="clear-project-btn"
@@ -85,7 +143,7 @@ export default function Home() {
           <button
             onClick={handleClearAllData}
             className="clear-all-btn"
-            title="Clear all temporary data (browser storage + server files)"
+            title={isAuthenticated ? "Clear your temporary data" : "Clear all temporary data (browser storage + server files)"}
             disabled={isClearing}
           >
             <span className="clear-project-text">{isClearing ? 'Clearing...' : 'Clear All Data'}</span>

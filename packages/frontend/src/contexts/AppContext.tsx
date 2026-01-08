@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import {
     VoiceService,
     ImageModel,
@@ -19,6 +19,7 @@ import {
     MotionEffect
 } from 'shared/src/types';
 import { api } from '@/lib/api';
+import { useAuth } from './AuthContext';
 
 const STORAGE_KEY = 'clabs-video-app-state';
 const QUEUE_STORAGE_KEY = 'clabs-video-app-queue';
@@ -100,6 +101,8 @@ interface AppContextType extends AppState {
     clearStorage: () => void;
     clearAllData: () => Promise<void>;
     maxCompletedStep: number;
+    projectId: string | null;
+    isSyncing: boolean;
 }
 
 const initialState: AppState = {
@@ -175,21 +178,128 @@ function saveToStorage(state: AppState) {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+    const { isAuthenticated, isLoading: authLoading } = useAuth();
     const [state, setState] = useState<AppState>(initialState);
     const [maxCompletedStep, setMaxCompletedStep] = useState(0);
     const [isHydrated, setIsHydrated] = useState(false);
+    const [projectId, setProjectId] = useState<string | null>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const lastSyncedStateRef = useRef<string>('');
 
-    // Load state from localStorage on mount
+    // Load state from localStorage on mount (fallback when not authenticated)
     useEffect(() => {
+        if (authLoading) return; // Wait for auth to resolve
+        
         const stored = loadFromStorage();
         if (stored) {
             setState(stored);
             setMaxCompletedStep(stored.currentStep);
         }
         setIsHydrated(true);
-    }, []);
+    }, [authLoading]);
 
-    // Debounced save to localStorage
+    // Load from database when authenticated
+    useEffect(() => {
+        if (authLoading || !isHydrated) return;
+        
+        if (isAuthenticated) {
+            // Load project from database
+            const loadProject = async () => {
+                try {
+                    setIsSyncing(true);
+                    const { project } = await api.getCurrentProject();
+                    setProjectId(project.id);
+                    
+                    // Map database project to app state
+                    const dbState: Partial<AppState> = {
+                        currentStep: project.currentStep,
+                        script: project.script || '',
+                        voiceService: project.voiceService as VoiceService | null,
+                        voiceId: project.voiceId,
+                        voiceoverUrl: project.voiceoverUrl,
+                        voiceoverDuration: project.voiceoverDuration,
+                        selectedFlow: project.selectedFlow as FlowType,
+                        selectedNiche: project.selectedNiche as Niche | null,
+                        imageModel: project.imageModel as ImageModel,
+                        aspectRatio: project.aspectRatio as AspectRatio,
+                        motionEffect: project.motionEffect as MotionEffect,
+                        videoQuality: project.videoQuality as VideoQuality,
+                        imageCount: project.imageCount,
+                        imageDuration: project.imageDuration,
+                        stockVideoCount: project.stockVideoCount,
+                        stockOrientation: project.stockOrientation as 'any' | StockVideoOrientation,
+                        captionsEnabled: project.captionsEnabled,
+                        captionStyle: project.captionStyle,
+                        wordTimestamps: project.wordTimestamps || [],
+                        imagePrompts: project.imagePrompts || [],
+                        generatedImages: project.generatedImages || [],
+                        selectedImages: project.selectedImages || [],
+                        stockVideoSlots: project.stockVideoSlots || [],
+                        selectedVideos: project.selectedVideos || [],
+                        overlays: project.overlays || [],
+                        timelineSlots: project.timelineSlots || [],
+                        useCustomTiming: project.useCustomTiming,
+                        videoJobId: project.videoJobId,
+                        finalVideoUrl: project.finalVideoUrl,
+                        chatHistory: project.chatHistory || [],
+                        scriptWordCount: project.scriptWordCount,
+                    };
+                    
+                    setState(prev => ({ ...prev, ...dbState }));
+                    setMaxCompletedStep(project.currentStep);
+                    lastSyncedStateRef.current = JSON.stringify(dbState);
+                    
+                    console.log('[AppContext] Loaded project from database:', project.id);
+                } catch (error) {
+                    console.warn('[AppContext] Failed to load project from database:', error);
+                    // Fall back to localStorage
+                } finally {
+                    setIsSyncing(false);
+                }
+            };
+            
+            loadProject();
+        } else {
+            // Not authenticated - clear project ID
+            setProjectId(null);
+        }
+    }, [isAuthenticated, authLoading, isHydrated]);
+
+    // Sync state to database when authenticated (debounced)
+    useEffect(() => {
+        if (!isHydrated || !isAuthenticated || !projectId) return;
+        
+        // Clear any pending sync
+        if (syncTimeoutRef.current) {
+            clearTimeout(syncTimeoutRef.current);
+        }
+        
+        // Check if state actually changed
+        const currentStateStr = JSON.stringify(state);
+        if (currentStateStr === lastSyncedStateRef.current) {
+            return;
+        }
+        
+        // Debounced sync to database
+        syncTimeoutRef.current = setTimeout(async () => {
+            try {
+                await api.syncProjectState(projectId, state);
+                lastSyncedStateRef.current = currentStateStr;
+                console.log('[AppContext] Synced to database');
+            } catch (error) {
+                console.warn('[AppContext] Failed to sync to database:', error);
+            }
+        }, DEBOUNCE_MS * 2); // Longer debounce for DB sync
+        
+        return () => {
+            if (syncTimeoutRef.current) {
+                clearTimeout(syncTimeoutRef.current);
+            }
+        };
+    }, [state, isHydrated, isAuthenticated, projectId]);
+
+    // Debounced save to localStorage (always, as fallback)
     useEffect(() => {
         if (!isHydrated) return;
 
@@ -259,7 +369,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
             console.warn('[AppContext] Failed to cleanup server files:', error);
             // Don't throw - browser cleanup succeeded, server cleanup is best-effort
         }
-    }, [resetApp]);
+        
+        // If authenticated, delete the project from database and create fresh
+        if (isAuthenticated && projectId) {
+            try {
+                await api.deleteProject(projectId);
+                const { project } = await api.createProject();
+                setProjectId(project.id);
+                console.log('[AppContext] Created fresh project:', project.id);
+            } catch (error) {
+                console.warn('[AppContext] Failed to reset project in database:', error);
+            }
+        }
+    }, [resetApp, isAuthenticated, projectId]);
 
     return (
         <AppContext.Provider value={{ 
@@ -271,7 +393,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             resetApp, 
             clearStorage,
             clearAllData,
-            maxCompletedStep
+            maxCompletedStep,
+            projectId,
+            isSyncing
         }}>
             {children}
         </AppContext.Provider>

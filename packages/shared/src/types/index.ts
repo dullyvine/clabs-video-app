@@ -1,4 +1,112 @@
+// ============================================
+// AUTHENTICATION TYPES
+// ============================================
+
+export interface User {
+    id: string;
+    email: string;
+    name: string | null;
+    avatarUrl: string | null;
+    createdAt?: string;
+    lastLoginAt?: string | null;
+}
+
+export interface AuthStatus {
+    available: boolean;
+    providers: {
+        google: boolean;
+    };
+    mode: 'authenticated' | 'anonymous';
+}
+
+export interface AuthResponse {
+    token: string;
+    user: User;
+}
+
+export interface MeResponse {
+    user: User;
+    stats: {
+        fileCount: number;
+        projectCount: number;
+        jobCount: number;
+        queueCount: number;
+    };
+}
+
+// ============================================
+// PROJECT TYPES (Database-backed)
+// ============================================
+
+export interface Project {
+    id: string;
+    userId: string;
+    name: string;
+    status: 'draft' | 'processing' | 'completed' | 'failed';
+    currentStep: number;
+    
+    // Script & Voiceover
+    script: string | null;
+    voiceService: string | null;
+    voiceId: string | null;
+    voiceoverUrl: string | null;
+    voiceoverDuration: number | null;
+    
+    // Flow & Style
+    selectedFlow: 'single-image' | 'multi-image' | 'stock-video' | null;
+    selectedNiche: string | null;
+    imageModel: string;
+    aspectRatio: string;
+    motionEffect: string;
+    videoQuality: string;
+    
+    // Multi-image specific
+    imageCount: number;
+    imageDuration: number;
+    
+    // Stock video specific
+    stockVideoCount: number;
+    stockOrientation: string;
+    
+    // Captions
+    captionsEnabled: boolean;
+    captionStyle: CaptionStyle;
+    wordTimestamps: WordTimestamp[];
+    
+    // Generated Content
+    imagePrompts: Array<{ id: string; prompt: string; sceneDescription?: string }>;
+    generatedImages: ImageGenerationResponse[];
+    selectedImages: string[];
+    stockVideoSlots: StockVideoSlot[];
+    selectedVideos: any[];
+    overlays: Overlay[];
+    timelineSlots: TimelineSlot[];
+    useCustomTiming: boolean;
+    
+    // Video Output
+    videoJobId: string | null;
+    finalVideoUrl: string | null;
+    
+    // Chat History
+    chatHistory: ChatMessage[];
+    scriptWordCount: number;
+    
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ProjectListResponse {
+    projects: Project[];
+}
+
+export interface ProjectResponse {
+    project: Project;
+    synced?: boolean;
+}
+
+// ============================================
 // Voice service types
+// ============================================
 export type VoiceService = 'gen-ai-pro' | 'ai33' | 'gemini';
 export type GeminiTTSModel = 'gemini-2.5-flash-preview-tts' | 'gemini-2.5-pro-preview-tts';
 

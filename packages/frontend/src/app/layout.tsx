@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { AppProvider } from "@/contexts/AppContext";
 import { ToastProvider } from "@/contexts/ToastContext";
 import { QueueProvider } from "@/contexts/QueueContext";
@@ -27,13 +28,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <AppProvider>
-          <QueueProvider>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
-          </QueueProvider>
-        </AppProvider>
+        <AuthProvider>
+          <AppProvider>
+            <QueueProvider>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </QueueProvider>
+          </AppProvider>
+        </AuthProvider>
       </body>
     </html>
   );
