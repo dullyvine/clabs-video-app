@@ -505,11 +505,15 @@ function estimateCharCount(text: string): number {
  * Smart chunking: Split script into chunks at sentence boundaries
  * respecting character limits
  * 
- * Gemini TTS works best with shorter text chunks (~800-1000 chars)
- * Longer inputs cause audio distortion, especially towards the end
- * At ~150 words/min speaking rate, 800 chars ≈ 1-1.5 min of audio
+ * Target chunk size: 3212 characters (optimal for Gemini TTS)
+ * This balances quality with throughput:
+ * - Large enough to minimize API calls and concatenation artifacts
+ * - Small enough to avoid rate limits (10 RPM, 10,000 TPM)
+ * - 3212 chars ≈ 803 tokens, allowing ~12 chunks per TPM limit
+ * 
+ * At ~150 words/min speaking rate, 3212 chars ≈ 2-3 min of audio per chunk
  */
-function chunkScriptBySentences(script: string, maxCharsPerChunk: number = 800): string[] {
+function chunkScriptBySentences(script: string, maxCharsPerChunk: number = 3212): string[] {
     const chunks: string[] = [];
 
     // Split into sentences (naive approach: split on . ! ?)
@@ -701,12 +705,6 @@ async function generateGeminiVoiceover(
 }
 
 /**
- * Minimum text length for Gemini TTS to work reliably
- * Very short texts (< 10 chars) can cause the model to try generating text instead of audio
- */
-const MIN_TTS_TEXT_LENGTH = 10;
-
-/**
  * Generate a single Gemini TTS audio file (no chunking) with retry logic
  */
 async function generateSingleGeminiAudio(
@@ -719,23 +717,18 @@ async function generateSingleGeminiAudio(
         throw new Error('GEMINI_API_KEY is not configured');
     }
 
-    // Validate minimum text length - very short texts cause "Model tried to generate text" errors
-    if (text.trim().length < MIN_TTS_TEXT_LENGTH) {
-        throw new Error(`Text too short for TTS. Minimum ${MIN_TTS_TEXT_LENGTH} characters required, got ${text.trim().length}. Please provide a longer script.`);
-    }
-
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+            // Use model without systemInstruction - TTS models don't support it
             const generativeModel = genAI.getGenerativeModel({
-                model: model,
-                // System instruction to ensure TTS-only output
-                systemInstruction: 'You are a text-to-speech system. Convert the provided text to speech audio. Do not generate any text responses, only generate audio output.'
+                model: model
             });
 
+            // Pass text directly without wrapping - TTS models expect raw text
             const result = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts: [{ text: `Please read aloud the following text: "${text}"` }] }],
+                contents: [{ role: 'user', parts: [{ text }] }],
                 generationConfig: {
                     responseModalities: ['AUDIO'],
                     speechConfig: {
@@ -822,23 +815,18 @@ async function generateSingleGeminiAudioWithRateLimit(
         throw new Error('GEMINI_API_KEY is not configured');
     }
 
-    // Validate minimum text length - very short texts cause "Model tried to generate text" errors
-    if (text.trim().length < MIN_TTS_TEXT_LENGTH) {
-        throw new Error(`Text too short for TTS. Minimum ${MIN_TTS_TEXT_LENGTH} characters required, got ${text.trim().length}. Please provide a longer script.`);
-    }
-
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+            // Use model without systemInstruction - TTS models don't support it
             const generativeModel = genAI.getGenerativeModel({
-                model: model,
-                // System instruction to ensure TTS-only output
-                systemInstruction: 'You are a text-to-speech system. Convert the provided text to speech audio. Do not generate any text responses, only generate audio output.'
+                model: model
             });
 
+            // Pass text directly without wrapping - TTS models expect raw text
             const result = await generativeModel.generateContent({
-                contents: [{ role: 'user', parts: [{ text: `Please read aloud the following text: "${text}"` }] }],
+                contents: [{ role: 'user', parts: [{ text }] }],
                 generationConfig: {
                     responseModalities: ['AUDIO'],
                     speechConfig: {

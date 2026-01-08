@@ -189,6 +189,15 @@ export function getGeminiTTSRateLimiter(): GeminiRateLimiter {
 
 /**
  * Calculate optimal chunk size and processing strategy
+ * 
+ * Chunk size: 3212 characters (optimal for Gemini TTS)
+ * - 3212 chars ≈ 803 tokens (1 token ≈ 4 chars)
+ * - Allows ~12 chunks before hitting 10,000 TPM limit
+ * - But RPM limit (10/min) is usually the bottleneck
+ * 
+ * Rate limits for Paid Tier 1:
+ * - 10 RPM (requests per minute)
+ * - 10,000 TPM (tokens per minute)
  */
 export function calculateOptimalStrategy(totalChars: number): {
     chunkSize: number;
@@ -198,9 +207,10 @@ export function calculateOptimalStrategy(totalChars: number): {
 } {
     const RPM = 10;
     const TPM = 10000;
+    const CHUNK_SIZE = 3212; // Optimal chunk size as requested
     
-    // If small enough for single request
-    if (totalChars <= 4000) {
+    // If small enough for single request (under chunk size)
+    if (totalChars <= CHUNK_SIZE) {
         return {
             chunkSize: totalChars,
             estimatedChunks: 1,
@@ -209,33 +219,30 @@ export function calculateOptimalStrategy(totalChars: number): {
         };
     }
     
-    // For larger scripts, optimize chunk size
-    // Target: maximize throughput while staying under limits
-    // 
-    // Constraints:
-    // 1. Max 10 requests per minute
-    // 2. Max 10,000 tokens (≈40,000 chars) per minute
-    //
-    // Optimal: 4,000 chars per chunk = 1,000 tokens
-    // This allows 10 chunks/min (limited by RPM, not TPM)
+    // For larger scripts, use 3212 char chunks
+    // 3212 chars ≈ 803 tokens
+    // With 10 RPM limit, we can do 10 chunks per minute
+    // With 10,000 TPM limit, we can do ~12 chunks per minute
+    // So RPM is the limiting factor
     
-    const optimalChunkSize = 4000;
-    const estimatedChunks = Math.ceil(totalChars / optimalChunkSize);
+    const estimatedChunks = Math.ceil(totalChars / CHUNK_SIZE);
     
     // Time calculation:
-    // - First 10 chunks: processed in parallel (~5s)
-    // - Every additional 10 chunks: +60s wait
-    const fullMinutes = Math.floor(estimatedChunks / RPM);
-    const remainingChunks = estimatedChunks % RPM;
+    // - Process in batches of 10 (RPM limit)
+    // - First batch: ~5s (parallel API calls)
+    // - Subsequent batches: 60s wait + 5s processing
+    const fullBatches = Math.ceil(estimatedChunks / RPM);
+    const processingTimePerBatch = 5; // ~5s for API calls + concatenation
+    const waitTimeBetweenBatches = 60; // Wait for rate limit window
     
-    // First batch is "free" (no wait), subsequent batches need 60s wait each
-    const waitMinutes = Math.max(0, fullMinutes - 1) + (fullMinutes > 0 && remainingChunks > 0 ? 1 : 0);
-    const processingTime = 5; // ~5s for API calls + concatenation per batch
+    // First batch has no wait, subsequent batches wait 60s each
+    const totalWaitTime = Math.max(0, fullBatches - 1) * waitTimeBetweenBatches;
+    const totalProcessingTime = fullBatches * processingTimePerBatch;
     
-    const estimatedTimeSeconds = (waitMinutes * 60) + (fullMinutes + (remainingChunks > 0 ? 1 : 0)) * processingTime;
+    const estimatedTimeSeconds = totalWaitTime + totalProcessingTime;
     
     return {
-        chunkSize: optimalChunkSize,
+        chunkSize: CHUNK_SIZE,
         estimatedChunks,
         estimatedTimeSeconds,
         strategy: 'chunked'
